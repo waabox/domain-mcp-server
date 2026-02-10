@@ -24,11 +24,95 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Index analysis test that validates query execution plans.
+ * Index Analysis Test - PostgreSQL Query Performance Analyzer.
  *
- * <p>Run with: mvn test -DAnalizeIndexes=true -Dtest=IndexAnalysisTest</p>
+ * <h2>Purpose</h2>
+ * <p>This test generates EXPLAIN ANALYZE BUFFERS output for all repository queries
+ * against a realistic dataset. The output is formatted for LLM analysis to identify
+ * performance bottlenecks and suggest index optimizations.</p>
  *
- * <p>Data is loaded from index-analysis-data.sql (100 projects, 200k classes, 1M methods)</p>
+ * <h2>How to Run</h2>
+ * <pre>
+ * mvn test -DAnalizeIndexes=true -Dtest=IndexAnalysisTest
+ * </pre>
+ *
+ * <h2>Dataset</h2>
+ * <p>Data is loaded from {@code index-analysis-data.sql}:</p>
+ * <ul>
+ *   <li>50 projects</li>
+ *   <li>850 classes (17 per project: 5 controllers, 2 services, 10 domain entities)</li>
+ *   <li>2,250 methods (45 per project: 5 endpoints + 10 service methods + 30 entity methods)</li>
+ * </ul>
+ *
+ * <h2>Output Format</h2>
+ * <p>The test outputs a markdown-formatted report containing:</p>
+ * <ol>
+ *   <li>Dataset statistics (row counts, table sizes, index sizes)</li>
+ *   <li>For each query: SQL statement + EXPLAIN ANALYZE BUFFERS output</li>
+ *   <li>List of current indexes</li>
+ * </ol>
+ *
+ * <h2>How to Analyze the Output (Instructions for LLM)</h2>
+ *
+ * <h3>1. Identify Performance Problems</h3>
+ * <p>Look for these red flags in the execution plans:</p>
+ * <ul>
+ *   <li><b>Seq Scan</b> on large tables - indicates missing index</li>
+ *   <li><b>Parallel Seq Scan</b> - PostgreSQL is parallelizing because query is slow</li>
+ *   <li><b>Sort</b> with high cost - consider index with ORDER BY columns</li>
+ *   <li><b>Nested Loop</b> with high row estimates - may need composite index</li>
+ *   <li><b>Hash Join</b> on large datasets - check if indexes exist on join columns</li>
+ *   <li><b>Buffers: shared read</b> high numbers - data not in cache, slow disk I/O</li>
+ * </ul>
+ *
+ * <h3>2. Interpret Timing</h3>
+ * <ul>
+ *   <li><b>actual time=X..Y</b>: X is startup time, Y is total time in milliseconds</li>
+ *   <li><b>rows=N</b>: actual rows returned (compare with "rows" in plan estimate)</li>
+ *   <li><b>loops=N</b>: how many times this node executed</li>
+ *   <li>Total query time is the "actual time" of the top-level node</li>
+ * </ul>
+ *
+ * <h3>3. Understand Scan Types</h3>
+ * <ul>
+ *   <li><b>Index Scan</b> - Good: uses index, fetches rows from table</li>
+ *   <li><b>Index Only Scan</b> - Best: all data from index, no table access</li>
+ *   <li><b>Bitmap Index Scan</b> - OK: builds bitmap then fetches, good for many rows</li>
+ *   <li><b>Seq Scan</b> - Bad on large tables: reads entire table</li>
+ * </ul>
+ *
+ * <h3>4. Suggest Index Improvements</h3>
+ * <p>When proposing indexes, consider:</p>
+ * <ul>
+ *   <li><b>Composite indexes</b>: (a, b) for WHERE a = ? AND b = ?</li>
+ *   <li><b>Covering indexes</b>: include ORDER BY columns to avoid sort</li>
+ *   <li><b>Partial indexes</b>: WHERE condition for filtered queries</li>
+ *   <li><b>text_pattern_ops</b>: for LIKE 'prefix%' queries</li>
+ * </ul>
+ *
+ * <h3>5. Example Analysis</h3>
+ * <pre>
+ * Problem: Seq Scan on source_methods (cost=0.00..50000.00)
+ *          Filter: (http_method IS NOT NULL AND http_path IS NOT NULL)
+ *          Rows Removed by Filter: 900000
+ *          actual time=500.000..972.000 ms
+ *
+ * Diagnosis: Full table scan filtering 90% of rows. No index for NULL checks.
+ *
+ * Solution: CREATE INDEX idx_http_endpoints ON source_methods(class_id, http_path)
+ *           WHERE http_method IS NOT NULL AND http_path IS NOT NULL;
+ *
+ * Expected improvement: Seq Scan → Index Scan, 972ms → ~50ms
+ * </pre>
+ *
+ * <h3>6. Response Format</h3>
+ * <p>When analyzing, provide:</p>
+ * <ol>
+ *   <li>Summary table of query performance (query name, time, scan type, issue)</li>
+ *   <li>Detailed analysis of problematic queries</li>
+ *   <li>Proposed CREATE INDEX statements with rationale</li>
+ *   <li>Expected performance improvement estimates</li>
+ * </ol>
  *
  * @author waabox(emiliano[at]fanki[dot]co)
  */

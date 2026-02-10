@@ -3,6 +3,12 @@
 -- Description: Creates tables for projects, analysis results, extracted business information,
 --              and source code context for Datadog stack trace correlation
 
+-- Create schema
+CREATE SCHEMA IF NOT EXISTS domain_mcp;
+
+-- Set search path for this migration
+SET search_path TO domain_mcp;
+
 -- Projects table - stores registered git repositories
 CREATE TABLE projects (
     id VARCHAR(36) PRIMARY KEY,

@@ -6,7 +6,7 @@ spring:
     name: domain-mcp-server
 
   datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/domain_mcp}
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/domain_mcp}?currentSchema=domain_mcp
     username: ${DATABASE_USERNAME:postgres}
     password: ${DATABASE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
@@ -16,11 +16,14 @@ spring:
       idle-timeout: 30000
       connection-timeout: 20000
       max-lifetime: 1800000
+      schema: domain_mcp
 
   flyway:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+    schemas: domain_mcp
+    default-schema: domain_mcp
 
   jackson:
     serialization:

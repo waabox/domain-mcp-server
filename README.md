@@ -1,10 +1,10 @@
 # domain-mcp-server
 
-> Domain-aware MCP server that clones and analyzes your microservices
-> (code + docs) to extract business logic, APIs, and data models,
-> storing everything in PostgreSQL for fast, structured querying.
-> Designed to work standalone or in concert with other MCP servers such
-> as Datadog MCP.
+Domain-aware MCP server that clones and analyzes your microservices
+(code + docs) to extract business logic, APIs, and data models,
+storing everything in PostgreSQL for fast, structured querying.
+Designed to work standalone or in concert with other MCP servers such
+as Datadog MCP.
 
 ## Motivation
 

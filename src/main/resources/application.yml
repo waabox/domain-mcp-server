@@ -31,15 +31,6 @@ spring:
     deserialization:
       fail-on-unknown-properties: false
 
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,metrics
-  endpoint:
-    health:
-      show-details: when_authorized
-
 # Claude API Configuration
 claude:
   api-key: ${ANTHROPIC_API_KEY:}

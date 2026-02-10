@@ -1,0 +1,63 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: domain-mcp-server
+
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/domain_mcp}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      idle-timeout: 30000
+      connection-timeout: 20000
+      max-lifetime: 1800000
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+
+# Claude API Configuration
+claude:
+  api-key: ${CLAUDE_API_KEY:}
+  model: claude-sonnet-4-20250514
+  max-tokens: 4096
+
+# Git Configuration
+git:
+  ssh-key-path: ${GIT_SSH_KEY_PATH:~/.ssh/id_rsa}
+  clone-base-path: ${GIT_CLONE_BASE_PATH:/tmp/domain-mcp-repos}
+  timeout-seconds: 300
+
+# MCP Server Configuration
+mcp:
+  server:
+    name: domain-mcp-server
+    version: 0.0.1
+    description: Domain MCP Server - Analyzes git repositories and extracts business information
+
+logging:
+  level:
+    root: INFO
+    co.fanki.domainmcp: DEBUG
+    org.eclipse.jgit: WARN

@@ -1,0 +1,96 @@
+package co.fanki.domainmcp.analysis.application;
+
+import co.fanki.domainmcp.analysis.application.CodeContextService.AnalysisResult;
+import co.fanki.domainmcp.shared.DomainException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * REST controller for project analysis operations.
+ *
+ * <p>Provides the analyze_project MCP tool functionality.</p>
+ *
+ * @author waabox(emiliano[at]fanki[dot]co)
+ */
+@RestController
+@RequestMapping("/api/projects")
+public class AnalyzeProjectController {
+
+    private static final Logger LOG = LoggerFactory.getLogger(
+            AnalyzeProjectController.class);
+
+    private final CodeContextService codeContextService;
+
+    /**
+     * Creates a new AnalyzeProjectController.
+     *
+     * @param theCodeContextService the code context service
+     */
+    public AnalyzeProjectController(
+            final CodeContextService theCodeContextService) {
+        this.codeContextService = theCodeContextService;
+    }
+
+    /**
+     * Analyzes a project and stores the extracted class/method information.
+     *
+     * <p>This endpoint implements the analyze_project MCP tool.</p>
+     *
+     * @param request the analysis request
+     * @return the analysis result
+     */
+    @PostMapping("/analyze")
+    public ResponseEntity<AnalyzeResponse> analyzeProject(
+            @RequestBody final AnalyzeRequest request) {
+
+        LOG.info("Received analyze request for: {}", request.repositoryUrl());
+
+        try {
+            final AnalysisResult result = codeContextService.analyzeProject(
+                    request.repositoryUrl(), request.branch());
+
+            return ResponseEntity.ok(new AnalyzeResponse(
+                    result.success(),
+                    result.projectId(),
+                    result.classesAnalyzed(),
+                    result.endpointsFound(),
+                    result.message()));
+
+        } catch (final DomainException e) {
+            LOG.error("Analysis failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body(new AnalyzeResponse(
+                            false, null, 0, 0, e.getMessage()));
+        } catch (final Exception e) {
+            LOG.error("Unexpected error during analysis", e);
+            return ResponseEntity.internalServerError()
+                    .body(new AnalyzeResponse(
+                            false, null, 0, 0, "Internal error: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Request for project analysis.
+     */
+    public record AnalyzeRequest(
+            String repositoryUrl,
+            String branch
+    ) {}
+
+    /**
+     * Response from project analysis.
+     */
+    public record AnalyzeResponse(
+            boolean success,
+            String projectId,
+            int classesAnalyzed,
+            int endpointsFound,
+            String message
+    ) {}
+
+}

@@ -1,0 +1,29 @@
+server:
+  port: 0
+
+spring:
+  application:
+    name: domain-mcp-server-test
+
+  datasource:
+    # Datasource properties are set dynamically by TestContainers via @DynamicPropertySource
+    driver-class-name: org.postgresql.Driver
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+claude:
+  api-key: test-api-key
+  model: claude-sonnet-4-20250514
+  max-tokens: 4096
+
+git:
+  ssh-key-path: ~/.ssh/id_rsa
+  clone-base-path: /tmp/test-repos
+  timeout-seconds: 60
+
+logging:
+  level:
+    root: WARN
+    co.fanki.domainmcp: DEBUG

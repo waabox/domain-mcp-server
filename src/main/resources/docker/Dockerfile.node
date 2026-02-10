@@ -1,0 +1,17 @@
+# Node.js Analysis Container with Claude Code
+FROM node:20-slim
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI
+RUN npm install -g @anthropic-ai/claude-code
+
+# Set up workspace
+WORKDIR /workspace
+
+# Default command keeps container running
+CMD ["tail", "-f", "/dev/null"]

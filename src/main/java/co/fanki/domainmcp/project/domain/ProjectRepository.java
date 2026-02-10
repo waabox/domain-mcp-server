@@ -1,6 +1,5 @@
 package co.fanki.domainmcp.project.domain;
 
-import co.fanki.domainmcp.shared.Queries;
 import org.jdbi.v3.core.Jdbi;
 import org.jdbi.v3.core.mapper.RowMapper;
 import org.jdbi.v3.core.statement.StatementContext;
@@ -20,6 +19,26 @@ import java.util.Optional;
  */
 @Repository
 public class ProjectRepository {
+
+    /** Find project by ID. Uses: PK index. */
+    public static final String FIND_BY_ID =
+            "SELECT * FROM projects WHERE id = :id";
+
+    /** Find project by repository URL. Uses: UNIQUE constraint on repository_url. */
+    public static final String FIND_BY_REPOSITORY_URL =
+            "SELECT * FROM projects WHERE repository_url = :url";
+
+    /** Find all projects. Uses: seq scan (expected for small table). */
+    public static final String FIND_ALL =
+            "SELECT * FROM projects ORDER BY created_at DESC";
+
+    /** Find projects by status. Uses: idx_projects_status. */
+    public static final String FIND_BY_STATUS =
+            "SELECT * FROM projects WHERE status = :status";
+
+    /** Check if project exists by repository URL. Uses: UNIQUE constraint on repository_url. */
+    public static final String EXISTS_BY_REPOSITORY_URL =
+            "SELECT COUNT(*) FROM projects WHERE repository_url = :url";
 
     private final Jdbi jdbi;
 
@@ -94,7 +113,7 @@ public class ProjectRepository {
      */
     public Optional<Project> findById(final String id) {
         return jdbi.withHandle(handle -> handle
-                .createQuery(Queries.PROJECT_FIND_BY_ID)
+                .createQuery(FIND_BY_ID)
                 .bind("id", id)
                 .map(new ProjectRowMapper())
                 .findOne());
@@ -108,7 +127,7 @@ public class ProjectRepository {
      */
     public Optional<Project> findByRepositoryUrl(final RepositoryUrl url) {
         return jdbi.withHandle(handle -> handle
-                .createQuery(Queries.PROJECT_FIND_BY_REPOSITORY_URL)
+                .createQuery(FIND_BY_REPOSITORY_URL)
                 .bind("url", url.value())
                 .map(new ProjectRowMapper())
                 .findOne());
@@ -121,7 +140,7 @@ public class ProjectRepository {
      */
     public List<Project> findAll() {
         return jdbi.withHandle(handle -> handle
-                .createQuery(Queries.PROJECT_FIND_ALL)
+                .createQuery(FIND_ALL)
                 .map(new ProjectRowMapper())
                 .list());
     }
@@ -134,7 +153,7 @@ public class ProjectRepository {
      */
     public List<Project> findByStatus(final ProjectStatus status) {
         return jdbi.withHandle(handle -> handle
-                .createQuery(Queries.PROJECT_FIND_BY_STATUS)
+                .createQuery(FIND_BY_STATUS)
                 .bind("status", status.name())
                 .map(new ProjectRowMapper())
                 .list());
@@ -160,7 +179,7 @@ public class ProjectRepository {
      */
     public boolean existsByRepositoryUrl(final RepositoryUrl url) {
         return jdbi.withHandle(handle -> handle
-                .createQuery(Queries.PROJECT_EXISTS_BY_REPOSITORY_URL)
+                .createQuery(EXISTS_BY_REPOSITORY_URL)
                 .bind("url", url.value())
                 .mapTo(Long.class)
                 .one() > 0);

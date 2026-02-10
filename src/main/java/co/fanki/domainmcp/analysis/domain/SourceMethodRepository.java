@@ -1,5 +1,6 @@
 package co.fanki.domainmcp.analysis.domain;
 
+import co.fanki.domainmcp.shared.Queries;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -118,7 +119,7 @@ public class SourceMethodRepository {
      */
     public Optional<SourceMethod> findById(final String id) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("SELECT * FROM source_methods WHERE id = :id")
+                .createQuery(Queries.SOURCE_METHOD_FIND_BY_ID)
                 .bind("id", id)
                 .map(new SourceMethodRowMapper(objectMapper))
                 .findOne());
@@ -132,11 +133,7 @@ public class SourceMethodRepository {
      */
     public List<SourceMethod> findByClassId(final String classId) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("""
-                        SELECT * FROM source_methods
-                        WHERE class_id = :classId
-                        ORDER BY line_number NULLS LAST, method_name
-                        """)
+                .createQuery(Queries.SOURCE_METHOD_FIND_BY_CLASS_ID)
                 .bind("classId", classId)
                 .map(new SourceMethodRowMapper(objectMapper))
                 .list());
@@ -150,12 +147,7 @@ public class SourceMethodRepository {
      */
     public List<SourceMethod> findByClassName(final String fullClassName) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("""
-                        SELECT m.* FROM source_methods m
-                        JOIN source_classes c ON c.id = m.class_id
-                        WHERE c.full_class_name = :fullClassName
-                        ORDER BY m.line_number NULLS LAST, m.method_name
-                        """)
+                .createQuery(Queries.SOURCE_METHOD_FIND_BY_CLASS_NAME)
                 .bind("fullClassName", fullClassName)
                 .map(new SourceMethodRowMapper(objectMapper))
                 .list());
@@ -171,12 +163,7 @@ public class SourceMethodRepository {
     public Optional<SourceMethod> findByClassNameAndMethodName(
             final String fullClassName, final String methodName) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("""
-                        SELECT m.* FROM source_methods m
-                        JOIN source_classes c ON c.id = m.class_id
-                        WHERE c.full_class_name = :fullClassName
-                          AND m.method_name = :methodName
-                        """)
+                .createQuery(Queries.SOURCE_METHOD_FIND_BY_CLASS_AND_METHOD_NAME)
                 .bind("fullClassName", fullClassName)
                 .bind("methodName", methodName)
                 .map(new SourceMethodRowMapper(objectMapper))
@@ -191,14 +178,7 @@ public class SourceMethodRepository {
      */
     public List<SourceMethod> findHttpEndpointsByProjectId(final String projectId) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("""
-                        SELECT m.* FROM source_methods m
-                        JOIN source_classes c ON c.id = m.class_id
-                        WHERE c.project_id = :projectId
-                          AND m.http_method IS NOT NULL
-                          AND m.http_path IS NOT NULL
-                        ORDER BY m.http_path, m.http_method
-                        """)
+                .createQuery(Queries.SOURCE_METHOD_FIND_HTTP_ENDPOINTS_BY_PROJECT_ID)
                 .bind("projectId", projectId)
                 .map(new SourceMethodRowMapper(objectMapper))
                 .list());
@@ -212,13 +192,7 @@ public class SourceMethodRepository {
      */
     public long countEndpointsByProjectId(final String projectId) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("""
-                        SELECT COUNT(*) FROM source_methods m
-                        JOIN source_classes c ON c.id = m.class_id
-                        WHERE c.project_id = :projectId
-                          AND m.http_method IS NOT NULL
-                          AND m.http_path IS NOT NULL
-                        """)
+                .createQuery(Queries.SOURCE_METHOD_COUNT_ENDPOINTS_BY_PROJECT_ID)
                 .bind("projectId", projectId)
                 .mapTo(Long.class)
                 .one());

@@ -1,5 +1,6 @@
 package co.fanki.domainmcp.project.domain;
 
+import co.fanki.domainmcp.shared.Queries;
 import org.jdbi.v3.core.Jdbi;
 import org.jdbi.v3.core.mapper.RowMapper;
 import org.jdbi.v3.core.statement.StatementContext;
@@ -93,7 +94,7 @@ public class ProjectRepository {
      */
     public Optional<Project> findById(final String id) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("SELECT * FROM projects WHERE id = :id")
+                .createQuery(Queries.PROJECT_FIND_BY_ID)
                 .bind("id", id)
                 .map(new ProjectRowMapper())
                 .findOne());
@@ -107,7 +108,7 @@ public class ProjectRepository {
      */
     public Optional<Project> findByRepositoryUrl(final RepositoryUrl url) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("SELECT * FROM projects WHERE repository_url = :url")
+                .createQuery(Queries.PROJECT_FIND_BY_REPOSITORY_URL)
                 .bind("url", url.value())
                 .map(new ProjectRowMapper())
                 .findOne());
@@ -120,7 +121,7 @@ public class ProjectRepository {
      */
     public List<Project> findAll() {
         return jdbi.withHandle(handle -> handle
-                .createQuery("SELECT * FROM projects ORDER BY created_at DESC")
+                .createQuery(Queries.PROJECT_FIND_ALL)
                 .map(new ProjectRowMapper())
                 .list());
     }
@@ -133,7 +134,7 @@ public class ProjectRepository {
      */
     public List<Project> findByStatus(final ProjectStatus status) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("SELECT * FROM projects WHERE status = :status")
+                .createQuery(Queries.PROJECT_FIND_BY_STATUS)
                 .bind("status", status.name())
                 .map(new ProjectRowMapper())
                 .list());
@@ -159,8 +160,7 @@ public class ProjectRepository {
      */
     public boolean existsByRepositoryUrl(final RepositoryUrl url) {
         return jdbi.withHandle(handle -> handle
-                .createQuery(
-                        "SELECT COUNT(*) FROM projects WHERE repository_url = :url")
+                .createQuery(Queries.PROJECT_EXISTS_BY_REPOSITORY_URL)
                 .bind("url", url.value())
                 .mapTo(Long.class)
                 .one() > 0);

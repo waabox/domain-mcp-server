@@ -1,5 +1,6 @@
 package co.fanki.domainmcp.analysis.domain;
 
+import co.fanki.domainmcp.shared.Queries;
 import org.jdbi.v3.core.Jdbi;
 import org.jdbi.v3.core.mapper.RowMapper;
 import org.jdbi.v3.core.statement.StatementContext;
@@ -102,7 +103,7 @@ public class SourceClassRepository {
      */
     public Optional<SourceClass> findById(final String id) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("SELECT * FROM source_classes WHERE id = :id")
+                .createQuery(Queries.SOURCE_CLASS_FIND_BY_ID)
                 .bind("id", id)
                 .map(new SourceClassRowMapper())
                 .findOne());
@@ -116,11 +117,7 @@ public class SourceClassRepository {
      */
     public List<SourceClass> findByProjectId(final String projectId) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("""
-                        SELECT * FROM source_classes
-                        WHERE project_id = :projectId
-                        ORDER BY full_class_name
-                        """)
+                .createQuery(Queries.SOURCE_CLASS_FIND_BY_PROJECT_ID)
                 .bind("projectId", projectId)
                 .map(new SourceClassRowMapper())
                 .list());
@@ -134,10 +131,7 @@ public class SourceClassRepository {
      */
     public Optional<SourceClass> findByFullClassName(final String fullClassName) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("""
-                        SELECT * FROM source_classes
-                        WHERE full_class_name = :fullClassName
-                        """)
+                .createQuery(Queries.SOURCE_CLASS_FIND_BY_FULL_CLASS_NAME)
                 .bind("fullClassName", fullClassName)
                 .map(new SourceClassRowMapper())
                 .findOne());
@@ -151,12 +145,7 @@ public class SourceClassRepository {
      */
     public List<SourceClass> findByPackagePrefix(final String packagePrefix) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("""
-                        SELECT * FROM source_classes
-                        WHERE package_name = :packagePrefix
-                           OR package_name LIKE :packagePattern
-                        ORDER BY full_class_name
-                        """)
+                .createQuery(Queries.SOURCE_CLASS_FIND_BY_PACKAGE_PREFIX)
                 .bind("packagePrefix", packagePrefix)
                 .bind("packagePattern", packagePrefix + ".%")
                 .map(new SourceClassRowMapper())
@@ -171,10 +160,7 @@ public class SourceClassRepository {
      */
     public long countByProjectId(final String projectId) {
         return jdbi.withHandle(handle -> handle
-                .createQuery("""
-                        SELECT COUNT(*) FROM source_classes
-                        WHERE project_id = :projectId
-                        """)
+                .createQuery(Queries.SOURCE_CLASS_COUNT_BY_PROJECT_ID)
                 .bind("projectId", projectId)
                 .mapTo(Long.class)
                 .one());

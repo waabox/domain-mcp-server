@@ -1,62 +1,61 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with this repository.
 
 ## Project Overview
 
-This is a Domain MCP Server - a Model Context Protocol server that exposes domain-specific tools and resources to AI assistants.
+Domain MCP Server - Analyzes git repositories using Claude Code in Docker containers and extracts business information (classes, methods, endpoints) for Datadog stack trace correlation.
+
+## Technology Stack
+
+- **Language**: Java 21
+- **Framework**: Spring Boot 3.3.6
+- **Database**: PostgreSQL with JDBI3
+- **Migrations**: Flyway
+- **Containers**: TestContainers for running Claude Code CLI
 
 ## Development Commands
 
 ```bash
-# Install dependencies
-pnpm install
-
-# Development with hot reload
-pnpm dev
-
-# Build for production
-pnpm build
-
-# Run production build
-pnpm start
+# Build
+mvn clean compile
 
 # Run tests
-pnpm test
+mvn test
 
-# Run a single test file
-pnpm test -- <path-to-test-file>
+# Run application
+mvn spring-boot:run
 
-# Lint code
-pnpm lint
-
-# Format code
-pnpm format
+# Package
+mvn package -DskipTests
 ```
 
 ## Architecture
 
-This MCP server follows the Model Context Protocol specification to expose domain tools and resources:
-
-- **Tools**: Executable functions that AI assistants can invoke
-- **Resources**: Data sources that AI assistants can read
-- **Prompts**: Pre-defined prompt templates for common operations
-
-### Key Directories
-
 ```
-src/
-├── tools/           # MCP tool implementations
-├── resources/       # MCP resource providers
-├── prompts/         # MCP prompt templates
-├── lib/             # Shared utilities and helpers
-└── index.ts         # Server entry point
+src/main/java/co/fanki/domainmcp/
+├── analysis/          # Code context and class/method extraction
+│   ├── domain/        # SourceClass, SourceMethod, repositories
+│   └── application/   # CodeContextService, controllers
+├── container/         # Docker container management
+│   ├── domain/        # AnalysisContainer, ContainerImage
+│   └── application/   # ContainerAnalysisService
+├── project/           # Project management
+│   ├── domain/        # Project entity, RepositoryUrl
+│   └── application/   # ProjectController
+├── config/            # Spring configuration
+└── shared/            # Shared utilities, exceptions
 ```
 
-## MCP Server Guidelines
+## Key Endpoints
 
-- Each tool should have a clear, focused purpose
-- Tool parameters must be well-documented with descriptions
-- Use Zod schemas for input validation
-- Return structured JSON responses from tools
-- Handle errors gracefully and return meaningful error messages
+- `POST /api/projects/analyze` - Analyze a repository and save to DB
+- `GET /api/context/class/{className}` - Get class context for Datadog correlation
+- `GET /api/context/method` - Get method context
+- `GET /api/projects` - List analyzed projects
+
+## Environment Variables
+
+- `ANTHROPIC_API_KEY` - Claude API key (required)
+- `GIT_SSH_KEY_PATH` - SSH key for private repos (optional)
+- `DATABASE_URL` - PostgreSQL connection URL

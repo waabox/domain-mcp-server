@@ -167,7 +167,8 @@ Add this to your Claude Code MCP settings (`~/.claude/settings.json` or via `/se
         "DATABASE_URL": "jdbc:postgresql://localhost:5432/domain_mcp?currentSchema=domain_mcp",
         "DATABASE_USERNAME": "postgres",
         "DATABASE_PASSWORD": "postgres",
-        "ANTHROPIC_API_KEY": "sk-ant-..."
+        "ANTHROPIC_API_KEY": "sk-ant-...",
+        "GIT_SSH_KEY_PATH" : "/Users/<user>/.ssh/id_rsa"
       }
     }
   }

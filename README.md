@@ -6,22 +6,6 @@
 > Designed to work standalone or in concert with other MCP servers such
 > as Datadog MCP.
 
-## Table of Contents
-
--   Motivation
--   What this MCP does
--   Architecture
--   MCP Tools / Capabilities
--   Installation
--   Running
--   Using from an MCP client
--   Integration with Datadog MCP server
--   Data model
--   Healthcheck & observability
--   Status / Roadmap
--   Contributing
--   License
-
 ## Motivation
 
 Modern backends age into a zoo of microservices and monorepos.
@@ -31,11 +15,11 @@ and tooling.
 
 ## What this MCP does
 
--   Git cloning & repository indexing\
--   Documentation + code analysis\
--   LLM-assisted domain extraction\
--   API & DB model mapping\
--   PostgreSQL-backed catalog\
+-   Git cloning & repository indexing
+-   Documentation + code analysis
+-   LLM-assisted domain extraction
+-   API & DB model mapping
+-   PostgreSQL-backed catalog
 -   Fast semantic queries via MCP
 
 ## Architecture
@@ -48,10 +32,10 @@ Minimal HTTP healthcheck (no Actuator)
 
 ## MCP Tools
 
--   register_service\
--   describe_service_domain\
--   list_service_apis\
--   list_service_models\
+-   register_service
+-   describe_service_domain
+-   list_service_apis
+-   list_service_models
 -   query_domain
 
 ## Installation
@@ -65,6 +49,36 @@ Java 21+, Maven, PostgreSQL, SSH key, LLM API key.
     mvn clean package
 
 ## Running
+
+## Configuration
+
+The server is configured entirely through environment variables referenced in `application.yml`.  
+Below are only the variables actually supported by this project.
+
+### Server
+
+### Claude / LLM
+
+| Variable            | Default   | Description                                                                |
+|---------------------|-----------|----------------------------------------------------------------------------|
+| `ANTHROPIC_API_KEY` | *(empty)* | API key for Claude domain analysis.                                        |
+
+
+### Database (PostgreSQL)
+
+| Variable            | Default                                                   | Description                |
+|---------------------|-----------------------------------------------------------|----------------------------|
+| `DATABASE_URL`      | `jdbc:postgresql://host:port/db?currentSchema=domain_mcp` | JDBC URL including schema. |
+| `DATABASE_USERNAME` | `postgres`                                                | PostgreSQL username.       |
+| `DATABASE_PASSWORD` | `postgres`                                                | PostgreSQL password.       |
+
+### Git / Repository Access
+
+| Variable               | Default                  | Description                                              |
+|------------------------|--------------------------|----------------------------------------------------------|
+| `GIT_SSH_KEY_PATH`     | *(empty)*                | Path to SSH private key for cloning repositories.        |
+| `GIT_CLONE_BASE_PATH`  | `/tmp/domain-mcp-repos`  | Directory where Git repositories are cloned & cached.    |
+
 
 ### Local
 

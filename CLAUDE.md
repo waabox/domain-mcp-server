@@ -59,3 +59,15 @@ src/main/java/co/fanki/domainmcp/
 - `ANTHROPIC_API_KEY` - Claude API key (required)
 - `GIT_SSH_KEY_PATH` - SSH key for private repos (optional)
 - `DATABASE_URL` - PostgreSQL connection URL
+
+## Datadog + Domain MCP Correlation Workflow
+
+When investigating errors from Datadog, ALWAYS follow this workflow:
+
+1. **Get error traces from Datadog** using `trace_list_error_traces` or `trace_inspect_error_trace`
+2. **Correlate logs** with `log_correlate` to get the full stack trace
+3. **IMMEDIATELY call `get_stack_trace_context`** with the stack trace frames (className, methodName, lineNumber) extracted from step 2
+4. If `get_stack_trace_context` returns `missingContext` frames, the project may not be indexed yet — use `list_projects` to check, and `analyze_project` to index it
+5. For deeper investigation on a specific class or method, use `get_class_context` or `get_method_context`
+
+This correlation gives you business context (what the code does, why it exists, its dependencies) on top of the raw Datadog error data, enabling root cause analysis.

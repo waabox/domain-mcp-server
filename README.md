@@ -64,37 +64,39 @@ Minimal HTTP healthcheck (no Actuator)
 
 ## MCP Tools
 
--   register_service
--   describe_service_domain
--   list_service_apis
--   list_service_models
--   query_domain
+| Tool | Description |
+|------|-------------|
+| `analyze_project` | Analyze a git repository and index its classes/methods. Must be run before querying context. |
+| `list_projects` | List all indexed projects with status and statistics. |
+| `get_class_context` | Get business context for a class by fully qualified name (type, description, methods). |
+| `get_method_context` | Get detailed method context (business logic, dependencies, exceptions, HTTP endpoint). |
+| `get_stack_trace_context` | **Primary Datadog correlation tool.** Takes a stack trace and returns business context for each frame. |
 
 ## Installation
 
 ### Requirements
 
-Java 21+, Maven, PostgreSQL, SSH key, LLM API key.
+- Java 21+
+- Maven
+- PostgreSQL 14+
+- SSH key (for private repos)
+- Anthropic API key
 
 ### Build
 
-    mvn clean package
-
-## Running
+```bash
+mvn clean package -DskipTests
+```
 
 ## Configuration
 
-The server is configured entirely through environment variables referenced in `application.yml`.  
-Below are only the variables actually supported by this project.
-
-### Server
+The server is configured through environment variables referenced in `application.yml`.
 
 ### Claude / LLM
 
-| Variable            | Default   | Description                                                                |
-|---------------------|-----------|----------------------------------------------------------------------------|
-| `ANTHROPIC_API_KEY` | *(empty)* | API key for Claude domain analysis.                                        |
-
+| Variable            | Default   | Description                         |
+|---------------------|-----------|-------------------------------------|
+| `ANTHROPIC_API_KEY` | *(empty)* | API key for Claude domain analysis. |
 
 ### Database (PostgreSQL)
 
@@ -106,33 +108,100 @@ Below are only the variables actually supported by this project.
 
 ### Git / Repository Access
 
-| Variable               | Default                  | Description                                              |
-|------------------------|--------------------------|----------------------------------------------------------|
-| `GIT_SSH_KEY_PATH`     | *(empty)*                | Path to SSH private key for cloning repositories.        |
-| `GIT_CLONE_BASE_PATH`  | `/tmp/domain-mcp-repos`  | Directory where Git repositories are cloned & cached.    |
+| Variable              | Default                 | Description                                           |
+|-----------------------|-------------------------|-------------------------------------------------------|
+| `GIT_SSH_KEY_PATH`    | *(empty)*               | Path to SSH private key for cloning repositories.     |
+| `GIT_CLONE_BASE_PATH` | `/tmp/domain-mcp-repos` | Directory where Git repositories are cloned & cached. |
 
+## Running
 
-### Local
+### REST API (standalone)
 
-    mvn spring-boot:run
+```bash
+mvn spring-boot:run
+```
+
+Starts the web server on port 8080 with REST endpoints for managing projects and querying context.
 
 ### Docker
 
-    docker build -t domain-mcp-server .
-    docker run -p 8080:8080 domain-mcp-server
+```bash
+docker build -t domain-mcp-server .
+docker run -p 8080:8080 domain-mcp-server
+```
 
 ### Kubernetes
 
 Deploy with env vars for DB, SSH key, LLM key.
 
+## Claude Code MCP Setup
+
+The server supports **MCP stdio transport** for direct integration with Claude Code. When running in MCP mode, the server communicates via JSON-RPC over stdin/stdout while keeping REST endpoints available on port 8080.
+
+### 1. Build the JAR
+
+```bash
+mvn clean package -DskipTests
+```
+
+### 2. Ensure PostgreSQL is running
+
+The MCP server connects to the same database as the REST API. Make sure PostgreSQL is running and the `domain_mcp` schema exists.
+
+### 3. Add to Claude Code MCP config
+
+Add this to your Claude Code MCP settings (`~/.claude/settings.json` or via `/settings` in Claude Code):
+
+```json
+{
+  "mcpServers": {
+    "domain-mcp-server": {
+      "command": "java",
+      "args": [
+        "--enable-preview",
+        "-Dspring.profiles.active=mcp",
+        "-jar",
+        "/absolute/path/to/domain-mcp-server/target/domain-mcp-server-1.0.1.jar"
+      ],
+      "env": {
+        "DATABASE_URL": "jdbc:postgresql://localhost:5432/domain_mcp?currentSchema=domain_mcp",
+        "DATABASE_USERNAME": "postgres",
+        "DATABASE_PASSWORD": "postgres",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
+    }
+  }
+}
+```
+
+Replace `/absolute/path/to/` with the actual path to the project on your machine.
+
+### 4. Verify the connection
+
+Restart Claude Code. The domain-mcp-server tools (`analyze_project`, `list_projects`, `get_class_context`, `get_method_context`, `get_stack_trace_context`) should appear in your available tools.
+
+### How it works
+
+- The `mcp` Spring profile activates stdio transport and redirects all logs to stderr
+- stdout is reserved exclusively for JSON-RPC messages
+- REST endpoints remain available on port 8080 for populating data via HTTP
+- Both transports share the same database and service layer
+
 ## Integration with Datadog MCP server
 
-Works seamlessly with:\
-https://github.com/waabox/datadog-mcp-server
+Works seamlessly with the [Datadog MCP server](https://github.com/waabox/datadog-mcp-server).
 
-Combine runtime data (traces, logs, metrics) with domain semantics
-(APIs, models, business rules). Ideal for debugging, root-cause
-analysis, and cross-service reasoning.
+### Correlation workflow
+
+When investigating production errors, Claude chains both MCP servers automatically:
+
+1. **Datadog MCP** `trace_list_error_traces` — find error traces for a service
+2. **Datadog MCP** `log_correlate` — get the full stack trace with log context
+3. **Domain MCP** `get_stack_trace_context` — enrich each frame with business context (what the code does, why it exists, its dependencies)
+4. If frames are missing context, `list_projects` / `analyze_project` to index the repository first
+5. **Domain MCP** `get_class_context` / `get_method_context` — drill deeper into specific classes or methods
+
+This gives you **root cause analysis** that combines runtime observability (Datadog) with domain knowledge (domain-mcp-server).
 
 ## Data model
 

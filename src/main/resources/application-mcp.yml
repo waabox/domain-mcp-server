@@ -1,0 +1,7 @@
+spring:
+  main:
+    banner-mode: off
+
+mcp:
+  server:
+    stdio: true

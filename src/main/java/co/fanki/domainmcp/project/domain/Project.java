@@ -17,6 +17,7 @@ public final class Project {
     private String name;
     private final RepositoryUrl repositoryUrl;
     private String defaultBranch;
+    private String description;
     private ProjectStatus status;
     private Instant lastAnalyzedAt;
     private String lastCommitHash;
@@ -77,12 +78,25 @@ public final class Project {
 
     /**
      * Reconstitutes a project from persistence.
+     *
+     * @param id the project ID
+     * @param name the project name
+     * @param repositoryUrl the repository URL
+     * @param defaultBranch the default branch
+     * @param description the project description derived from README
+     * @param status the project status
+     * @param lastAnalyzedAt when last analyzed
+     * @param lastCommitHash the last commit hash analyzed
+     * @param createdAt when created
+     * @param updatedAt when last updated
+     * @return the reconstituted Project
      */
     public static Project reconstitute(
             final String id,
             final String name,
             final RepositoryUrl repositoryUrl,
             final String defaultBranch,
+            final String description,
             final ProjectStatus status,
             final Instant lastAnalyzedAt,
             final String lastCommitHash,
@@ -91,6 +105,7 @@ public final class Project {
 
         final Project project = new Project(id, name, repositoryUrl,
                 defaultBranch, createdAt);
+        project.description = description;
         project.status = status;
         project.lastAnalyzedAt = lastAnalyzedAt;
         project.lastCommitHash = lastCommitHash;
@@ -127,6 +142,16 @@ public final class Project {
     }
 
     /**
+     * Updates the project description derived from README analysis.
+     *
+     * @param theDescription the project description, may be null
+     */
+    public void updateDescription(final String theDescription) {
+        this.description = theDescription;
+        this.updatedAt = Instant.now();
+    }
+
+    /**
      * Marks the project as having an error.
      */
     public void markError() {
@@ -159,6 +184,10 @@ public final class Project {
 
     public String defaultBranch() {
         return defaultBranch;
+    }
+
+    public String description() {
+        return description;
     }
 
     public ProjectStatus status() {

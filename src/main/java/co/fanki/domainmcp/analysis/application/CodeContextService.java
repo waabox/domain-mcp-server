@@ -119,6 +119,10 @@ public class CodeContextService {
             }
         }
 
+        if (output.projectDescription() != null) {
+            project.updateDescription(output.projectDescription());
+        }
+
         project.analysisCompleted("HEAD");
         projectRepository.update(project);
 
@@ -159,8 +163,10 @@ public class CodeContextService {
         final Optional<Project> project = projectRepository.findById(sc.projectId());
         final String projectUrl = project.map(p -> p.repositoryUrl().value())
                 .orElse(null);
+        final String projectDescription = project.map(Project::description)
+                .orElse(null);
 
-        return ClassContext.found(sc, methods, projectUrl);
+        return ClassContext.found(sc, methods, projectUrl, projectDescription);
     }
 
     /**
@@ -194,8 +200,10 @@ public class CodeContextService {
         final Optional<Project> project = projectRepository.findById(sc.projectId());
         final String projectUrl = project.map(p -> p.repositoryUrl().value())
                 .orElse(null);
+        final String projectDescription = project.map(Project::description)
+                .orElse(null);
 
-        return MethodContext.found(sc, method.get(), projectUrl);
+        return MethodContext.found(sc, method.get(), projectUrl, projectDescription);
     }
 
     /**
@@ -212,6 +220,7 @@ public class CodeContextService {
         final List<ExecutionPathEntry> entries = new ArrayList<>();
         final List<StackFrame> missing = new ArrayList<>();
         String projectUrl = null;
+        String projectDescription = null;
 
         int order = 1;
         for (final StackFrame frame : stackFrames) {
@@ -239,12 +248,15 @@ public class CodeContextService {
                         .findById(sc.projectId());
                 projectUrl = project.map(p -> p.repositoryUrl().value())
                         .orElse(null);
+                projectDescription = project.map(Project::description)
+                        .orElse(null);
             }
 
             entries.add(ExecutionPathEntry.found(order++, sc, method.get()));
         }
 
-        return new StackTraceContext(entries, missing, projectUrl);
+        return new StackTraceContext(entries, missing, projectUrl,
+                projectDescription);
     }
 
     /**
@@ -269,6 +281,7 @@ public class CodeContextService {
                     project.name(),
                     project.repositoryUrl().value(),
                     basePackage,
+                    project.description(),
                     project.status().name(),
                     project.lastAnalyzedAt(),
                     classCount,
@@ -376,6 +389,7 @@ public class CodeContextService {
             String className,
             String classType,
             String description,
+            String projectDescription,
             List<MethodSummary> methods,
             String projectUrl,
             String message,
@@ -383,7 +397,8 @@ public class CodeContextService {
     ) {
         public static ClassContext found(final SourceClass sc,
                 final List<SourceMethod> methods,
-                final String projectUrl) {
+                final String projectUrl,
+                final String projectDescription) {
             final List<MethodSummary> methodSummaries = methods.stream()
                     .map(m -> new MethodSummary(
                             m.methodName(),
@@ -394,13 +409,15 @@ public class CodeContextService {
 
             return new ClassContext(true, sc.fullClassName(),
                     sc.classType().name(), sc.description(),
-                    methodSummaries, projectUrl, null, List.of());
+                    projectDescription, methodSummaries, projectUrl,
+                    null, List.of());
         }
 
         public static ClassContext notFound(final String className,
                 final List<KnownProject> knownProjects) {
             return new ClassContext(false, className, null, null,
-                    List.of(), null, "No context available for this class",
+                    null, List.of(), null,
+                    "No context available for this class",
                     knownProjects);
         }
     }
@@ -424,6 +441,7 @@ public class CodeContextService {
             String methodName,
             String httpEndpoint,
             String description,
+            String projectDescription,
             List<String> businessLogic,
             List<String> dependencies,
             List<String> exceptions,
@@ -435,19 +453,20 @@ public class CodeContextService {
     ) {
         public static MethodContext found(final SourceClass sc,
                 final SourceMethod method,
-                final String projectUrl) {
+                final String projectUrl,
+                final String projectDescription) {
             return new MethodContext(true, sc.fullClassName(),
                     method.methodName(), method.httpEndpoint(),
-                    method.description(), method.businessLogic(),
-                    method.dependencies(), method.exceptions(),
-                    sc.sourceFile(), method.lineNumber(),
-                    projectUrl, null, List.of());
+                    method.description(), projectDescription,
+                    method.businessLogic(), method.dependencies(),
+                    method.exceptions(), sc.sourceFile(),
+                    method.lineNumber(), projectUrl, null, List.of());
         }
 
         public static MethodContext notFound(final String className,
                 final String methodName, final List<KnownProject> knownProjects) {
             return new MethodContext(false, className, methodName,
-                    null, null, List.of(), List.of(), List.of(),
+                    null, null, null, List.of(), List.of(), List.of(),
                     null, null, null,
                     "No context available for this method",
                     knownProjects);
@@ -456,7 +475,7 @@ public class CodeContextService {
         public static MethodContext classFoundMethodMissing(final String className,
                 final String methodName) {
             return new MethodContext(false, className, methodName,
-                    null, null, List.of(), List.of(), List.of(),
+                    null, null, null, List.of(), List.of(), List.of(),
                     null, null, null,
                     "Class found but method not indexed",
                     List.of());
@@ -478,7 +497,8 @@ public class CodeContextService {
     public record StackTraceContext(
             List<ExecutionPathEntry> executionPath,
             List<StackFrame> missingContext,
-            String projectUrl
+            String projectUrl,
+            String projectDescription
     ) {}
 
     /**
@@ -533,6 +553,7 @@ public class CodeContextService {
             String name,
             String repositoryUrl,
             String basePackage,
+            String description,
             String status,
             java.time.Instant lastAnalyzedAt,
             long classCount,

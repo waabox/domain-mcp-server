@@ -60,10 +60,10 @@ public class ProjectRepository {
     public void save(final Project project) {
         jdbi.useHandle(handle -> handle.createUpdate("""
                 INSERT INTO projects (
-                    id, name, repository_url, default_branch,
+                    id, name, repository_url, default_branch, description,
                     status, last_analyzed_at, last_commit_hash, created_at, updated_at
                 ) VALUES (
-                    :id, :name, :repositoryUrl, :defaultBranch,
+                    :id, :name, :repositoryUrl, :defaultBranch, :description,
                     :status, :lastAnalyzedAt, :lastCommitHash, :createdAt, :updatedAt
                 )
                 """)
@@ -71,6 +71,7 @@ public class ProjectRepository {
                 .bind("name", project.name())
                 .bind("repositoryUrl", project.repositoryUrl().value())
                 .bind("defaultBranch", project.defaultBranch())
+                .bind("description", project.description())
                 .bind("status", project.status().name())
                 .bind("lastAnalyzedAt", toTimestamp(project.lastAnalyzedAt()))
                 .bind("lastCommitHash", project.lastCommitHash())
@@ -89,6 +90,7 @@ public class ProjectRepository {
                 UPDATE projects SET
                     name = :name,
                     default_branch = :defaultBranch,
+                    description = :description,
                     status = :status,
                     last_analyzed_at = :lastAnalyzedAt,
                     last_commit_hash = :lastCommitHash,
@@ -98,6 +100,7 @@ public class ProjectRepository {
                 .bind("id", project.id())
                 .bind("name", project.name())
                 .bind("defaultBranch", project.defaultBranch())
+                .bind("description", project.description())
                 .bind("status", project.status().name())
                 .bind("lastAnalyzedAt", toTimestamp(project.lastAnalyzedAt()))
                 .bind("lastCommitHash", project.lastCommitHash())
@@ -199,6 +202,7 @@ public class ProjectRepository {
             final RepositoryUrl repositoryUrl = RepositoryUrl.of(
                     rs.getString("repository_url"));
             final String defaultBranch = rs.getString("default_branch");
+            final String description = rs.getString("description");
             final ProjectStatus status = ProjectStatus.valueOf(
                     rs.getString("status"));
 
@@ -211,7 +215,7 @@ public class ProjectRepository {
             final Instant updatedAt = rs.getTimestamp("updated_at").toInstant();
 
             return Project.reconstitute(
-                    id, name, repositoryUrl, defaultBranch,
+                    id, name, repositoryUrl, defaultBranch, description,
                     status, lastAnalyzedAt, lastCommitHash, createdAt, updatedAt);
         }
     }

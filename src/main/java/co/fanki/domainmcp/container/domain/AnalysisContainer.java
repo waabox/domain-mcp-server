@@ -213,6 +213,26 @@ public class AnalysisContainer implements AutoCloseable {
     }
 
     /**
+     * Reads a file from inside the container.
+     *
+     * <p>Executes {@code cat} on the given path. Returns the file content
+     * if the file exists, or an empty string if it does not.</p>
+     *
+     * @param path the absolute path inside the container
+     * @return the file content, or empty string if not found
+     */
+    public String readFileFromContainer(final String path)
+            throws IOException, InterruptedException {
+
+        final ExecResult result = executeCommand("cat", path);
+        if (!result.isSuccess()) {
+            LOG.debug("File not found in container: {}", path);
+            return "";
+        }
+        return result.stdout();
+    }
+
+    /**
      * Executes a command inside the container.
      *
      * @param command the command and arguments

@@ -94,7 +94,7 @@ public class CodeContextService {
         projectRepository.update(project);
 
         final AnalysisOutput output = containerAnalysisService
-                .analyzeRepositoryDetailed(repoUrl, ContainerImage.JAVA);
+                .analyzeRepository(repoUrl, ContainerImage.JAVA);
 
         if (!output.isSuccess()) {
             project.markError();

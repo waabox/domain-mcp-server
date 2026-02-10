@@ -42,13 +42,13 @@ management:
 
 # Claude API Configuration
 claude:
-  api-key: ${CLAUDE_API_KEY:}
+  api-key: ${ANTHROPIC_API_KEY:}
   model: claude-sonnet-4-20250514
   max-tokens: 4096
 
 # Git Configuration
 git:
-  ssh-key-path: ${GIT_SSH_KEY_PATH:~/.ssh/id_rsa}
+  ssh-key-path: ${GIT_SSH_KEY_PATH:}
   clone-base-path: ${GIT_CLONE_BASE_PATH:/tmp/domain-mcp-repos}
   timeout-seconds: 300
 

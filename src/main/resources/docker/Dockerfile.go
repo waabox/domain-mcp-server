@@ -15,8 +15,16 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # Install Claude Code CLI
 RUN npm install -g @anthropic-ai/claude-code
 
+# Create non-root user for Claude Code
+RUN useradd -m -s /bin/bash claude && \
+    mkdir -p /workspace && \
+    chown -R claude:claude /workspace
+
 # Set up workspace
 WORKDIR /workspace
+
+# Switch to non-root user
+USER claude
 
 # Default command keeps container running
 CMD ["tail", "-f", "/dev/null"]

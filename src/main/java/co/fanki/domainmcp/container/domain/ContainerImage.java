@@ -16,6 +16,7 @@ public enum ContainerImage {
      * Java 21 with Maven/Gradle support.
      */
     JAVA("domain-mcp/java",
+            "docker/Dockerfile.java",
             Set.of(".java"),
             Set.of("pom.xml", "build.gradle", "build.gradle.kts")),
 
@@ -23,6 +24,7 @@ public enum ContainerImage {
      * Node.js 20 with npm/yarn support.
      */
     NODE("domain-mcp/node",
+            "docker/Dockerfile.node",
             Set.of(".js", ".ts", ".jsx", ".tsx"),
             Set.of("package.json")),
 
@@ -30,6 +32,7 @@ public enum ContainerImage {
      * Python 3.12 with pip support.
      */
     PYTHON("domain-mcp/python",
+            "docker/Dockerfile.python",
             Set.of(".py"),
             Set.of("requirements.txt", "pyproject.toml", "setup.py")),
 
@@ -37,6 +40,7 @@ public enum ContainerImage {
      * Go 1.22 with modules support.
      */
     GO("domain-mcp/go",
+            "docker/Dockerfile.go",
             Set.of(".go"),
             Set.of("go.mod")),
 
@@ -44,17 +48,21 @@ public enum ContainerImage {
      * Generic container for unknown languages.
      */
     GENERIC("domain-mcp/generic",
+            "docker/Dockerfile.generic",
             Set.of(),
             Set.of());
 
     private final String imageName;
+    private final String dockerfilePath;
     private final Set<String> fileExtensions;
     private final Set<String> markerFiles;
 
     ContainerImage(final String theImageName,
+            final String theDockerfilePath,
             final Set<String> theFileExtensions,
             final Set<String> theMarkerFiles) {
         this.imageName = theImageName;
+        this.dockerfilePath = theDockerfilePath;
         this.fileExtensions = theFileExtensions;
         this.markerFiles = theMarkerFiles;
     }
@@ -66,6 +74,15 @@ public enum ContainerImage {
      */
     public String imageName() {
         return imageName;
+    }
+
+    /**
+     * Returns the Dockerfile path in classpath resources.
+     *
+     * @return the Dockerfile path (e.g., "docker/Dockerfile.java")
+     */
+    public String dockerfilePath() {
+        return dockerfilePath;
     }
 
     /**

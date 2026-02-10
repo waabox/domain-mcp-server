@@ -97,8 +97,9 @@ public class DockerImageBuilder {
     }
 
     private void buildImage(final ContainerImage image) {
-        final String dockerfileName = resolveDockerfileName(image);
-        final Path tempDir = extractDockerfile(dockerfileName);
+        final String dockerfilePath = image.dockerfilePath();
+        final String dockerfileName = Path.of(dockerfilePath).getFileName().toString();
+        final Path tempDir = extractDockerfile(dockerfilePath, dockerfileName);
 
         try {
             final String imageId = dockerClient.buildImageCmd()
@@ -116,21 +117,11 @@ public class DockerImageBuilder {
         }
     }
 
-    private String resolveDockerfileName(final ContainerImage image) {
-        return switch (image) {
-            case JAVA -> "Dockerfile.java";
-            case NODE -> "Dockerfile.node";
-            case PYTHON -> "Dockerfile.python";
-            case GO -> "Dockerfile.go";
-            case GENERIC -> "Dockerfile.generic";
-        };
-    }
-
-    private Path extractDockerfile(final String dockerfileName) {
+    private Path extractDockerfile(final String dockerfilePath,
+            final String dockerfileName) {
         try {
             final Path tempDir = Files.createTempDirectory("docker-build");
-            final ClassPathResource resource = new ClassPathResource(
-                    "docker/" + dockerfileName);
+            final ClassPathResource resource = new ClassPathResource(dockerfilePath);
 
             try (InputStream is = resource.getInputStream()) {
                 Files.copy(is, tempDir.resolve(dockerfileName),
@@ -141,7 +132,7 @@ public class DockerImageBuilder {
 
         } catch (IOException e) {
             throw new RuntimeException("Failed to extract Dockerfile: "
-                    + dockerfileName, e);
+                    + dockerfilePath, e);
         }
     }
 

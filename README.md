@@ -104,9 +104,9 @@ analysis, and cross-service reasoning.
 
 ## Data model
 
-Stored in PostgreSQL: - services\
-- domain_concepts\
-- apis\
+Stored in PostgreSQL: - services
+- domain_concepts
+- apis
 - models/entities
 
 ## Healthcheck

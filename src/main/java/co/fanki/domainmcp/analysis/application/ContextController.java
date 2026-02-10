@@ -4,6 +4,9 @@ import co.fanki.domainmcp.analysis.application.CodeContextService.ClassContext;
 import co.fanki.domainmcp.analysis.application.CodeContextService.MethodContext;
 import co.fanki.domainmcp.analysis.application.CodeContextService.StackFrame;
 import co.fanki.domainmcp.analysis.application.CodeContextService.StackTraceContext;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -27,6 +30,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/context")
+@Tag(name = "Code Context", description = "Retrieve context for classes, methods, and stack traces")
 public class ContextController {
 
     private static final Logger LOG = LoggerFactory.getLogger(
@@ -51,8 +55,13 @@ public class ContextController {
      * @param className the fully qualified class name
      * @return the class context
      */
+    @Operation(
+            summary = "Get class context by path",
+            description = "Retrieves context for a class including description, type, and methods"
+    )
     @GetMapping("/class/{className}")
     public ResponseEntity<ClassContext> getClassContext(
+            @Parameter(description = "Fully qualified class name", example = "co.fanki.user.UserService")
             @PathVariable final String className) {
 
         LOG.debug("Getting class context for: {}", className);
@@ -70,8 +79,14 @@ public class ContextController {
      * @param className the fully qualified class name
      * @return the class context
      */
+    @Operation(
+            summary = "Get class context",
+            description = "Retrieves context for a class including description, type, and methods. " +
+                    "Use this endpoint when the class name contains dots."
+    )
     @GetMapping("/class")
     public ResponseEntity<ClassContext> getClassContextByParam(
+            @Parameter(description = "Fully qualified class name", example = "co.fanki.user.UserService")
             @RequestParam final String className) {
 
         LOG.debug("Getting class context for: {}", className);
@@ -89,9 +104,16 @@ public class ContextController {
      * @param methodName the method name
      * @return the method context
      */
+    @Operation(
+            summary = "Get method context",
+            description = "Retrieves detailed context for a specific method including business logic, " +
+                    "dependencies, exceptions, and HTTP endpoint if applicable"
+    )
     @GetMapping("/method")
     public ResponseEntity<MethodContext> getMethodContext(
+            @Parameter(description = "Fully qualified class name", example = "co.fanki.user.UserService")
             @RequestParam final String className,
+            @Parameter(description = "Method name", example = "createUser")
             @RequestParam final String methodName) {
 
         LOG.debug("Getting method context for: {}.{}", className, methodName);
@@ -109,6 +131,11 @@ public class ContextController {
      * @param request the stack trace request
      * @return the stack trace context
      */
+    @Operation(
+            summary = "Get stack trace context",
+            description = "Retrieves context for multiple stack frames, useful for correlating " +
+                    "Datadog error stack traces with source code context"
+    )
     @PostMapping("/stack-trace")
     public ResponseEntity<StackTraceContext> getStackTraceContext(
             @RequestBody final StackTraceRequest request) {

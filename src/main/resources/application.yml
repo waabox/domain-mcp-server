@@ -59,6 +59,15 @@ mcp:
     version: 0.0.1
     description: Domain MCP Server - Analyzes git repositories and extracts business information
 
+# OpenAPI / Swagger Configuration
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+
 logging:
   level:
     root: INFO

@@ -23,6 +23,7 @@
         <jdbi.version>3.45.4</jdbi.version>
         <jgit.version>7.1.0.202411261347-r</jgit.version>
         <testcontainers.version>1.20.4</testcontainers.version>
+        <springdoc.version>2.3.0</springdoc.version>
     </properties>
 
     <dependencies>
@@ -91,6 +92,13 @@
             <groupId>org.eclipse.jgit</groupId>
             <artifactId>org.eclipse.jgit.ssh.apache</artifactId>
             <version>${jgit.version}</version>
+        </dependency>
+
+        <!-- OpenAPI / Swagger -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
         </dependency>
 
         <!-- Jackson for JSON -->

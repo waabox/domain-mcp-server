@@ -2,6 +2,12 @@ package co.fanki.domainmcp.analysis.application;
 
 import co.fanki.domainmcp.analysis.application.CodeContextService.AnalysisResult;
 import co.fanki.domainmcp.shared.DomainException;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/projects")
+@Tag(name = "Project Analysis", description = "Analyze git repositories and extract class/method information")
 public class AnalyzeProjectController {
 
     private static final Logger LOG = LoggerFactory.getLogger(
@@ -44,6 +51,16 @@ public class AnalyzeProjectController {
      * @param request the analysis request
      * @return the analysis result
      */
+    @Operation(
+            summary = "Analyze a git repository",
+            description = "Clones and analyzes a git repository using Claude Code to extract " +
+                    "class and method information including business logic, dependencies, and HTTP endpoints."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Analysis completed",
+                    content = @Content(schema = @Schema(implementation = AnalyzeResponse.class))),
+            @ApiResponse(responseCode = "500", description = "Analysis failed")
+    })
     @PostMapping("/analyze")
     public ResponseEntity<AnalyzeResponse> analyzeProject(
             @RequestBody final AnalyzeRequest request) {

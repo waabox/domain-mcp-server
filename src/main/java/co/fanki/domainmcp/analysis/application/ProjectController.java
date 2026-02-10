@@ -1,6 +1,8 @@
 package co.fanki.domainmcp.analysis.application;
 
 import co.fanki.domainmcp.analysis.application.CodeContextService.ProjectSummary;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +22,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/projects")
+@Tag(name = "Project Analysis", description = "Analyze git repositories and extract class/method information")
 public class ProjectController {
 
     private static final Logger LOG = LoggerFactory.getLogger(
@@ -43,6 +46,11 @@ public class ProjectController {
      *
      * @return the list of projects
      */
+    @Operation(
+            summary = "List all projects",
+            description = "Returns a list of all analyzed projects with their metadata " +
+                    "including class count, endpoint count, and analysis status"
+    )
     @GetMapping
     public ResponseEntity<ProjectListResponse> listProjects() {
         LOG.debug("Listing all projects");

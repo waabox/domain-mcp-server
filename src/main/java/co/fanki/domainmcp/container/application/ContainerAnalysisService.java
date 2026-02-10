@@ -31,11 +31,15 @@ public class ContainerAnalysisService {
             ContainerAnalysisService.class);
 
     private static final String WORKSPACE_DIR = "/workspace/repo";
+    private static final String README_PATH = WORKSPACE_DIR + "/README.md";
+    private static final int MAX_README_LENGTH = 10_000;
 
     private static final String ANALYSIS_PROMPT = """
         IMPORTANT: Respond with ONLY valid JSON, no other text before or after.
         Analyze this codebase and extract information about classes and methods.
-        Return a JSON object with: summary (string), classes (array), endpoints (array).
+        Return a JSON object with: projectDescription (string summarizing what this \
+        project/service does based on the README and code), summary (string), \
+        classes (array), endpoints (array).
         Each class needs: fullClassName, classType (CONTROLLER/SERVICE/REPOSITORY/ENTITY/DTO/CONFIGURATION/LISTENER/UTILITY/EXCEPTION/OTHER), description, sourceFile, methods (array).
         Each method needs: methodName, description, businessLogic (array of steps), dependencies (array), exceptions (array), httpMethod (or null), httpPath (or null), lineNumber.
         Each endpoint needs: httpMethod, path, description, handlerMethod, handlerClass, requestBody, responseBody, businessLogicSummary (array).
@@ -97,8 +101,10 @@ public class ContainerAnalysisService {
                         startedAt, Instant.now());
             }
 
+            final String prompt = buildPromptWithReadme(container);
+
             final AnalysisContainer.ExecResult analysisResult =
-                    container.runClaudeAnalysis(WORKSPACE_DIR, ANALYSIS_PROMPT);
+                    container.runClaudeAnalysis(WORKSPACE_DIR, prompt);
 
             if (!analysisResult.isSuccess()) {
                 LOG.error("Claude analysis failed: {}", analysisResult.stderr());
@@ -132,6 +138,9 @@ public class ContainerAnalysisService {
             final String summary = root.has("summary")
                     ? root.get("summary").asText() : "";
 
+            final String projectDescription = root.has("projectDescription")
+                    ? root.get("projectDescription").asText() : null;
+
             final List<EndpointInfo> endpoints = new ArrayList<>();
             final JsonNode endpointsNode = root.get("endpoints");
 
@@ -150,14 +159,15 @@ public class ContainerAnalysisService {
                 }
             }
 
-            return AnalysisOutput.successWithClasses(rawOutput, summary, endpoints,
-                    classes, startedAt, Instant.now());
+            return AnalysisOutput.successWithClasses(rawOutput, summary,
+                    projectDescription, endpoints, classes,
+                    startedAt, Instant.now());
 
         } catch (Exception e) {
             LOG.warn("Failed to parse JSON output, returning raw", e);
             return AnalysisOutput.successWithClasses(rawOutput,
-                    "Parse failed - see raw output", List.of(), List.of(),
-                    startedAt, Instant.now());
+                    "Parse failed - see raw output", null, List.of(),
+                    List.of(), startedAt, Instant.now());
         }
     }
 
@@ -188,6 +198,28 @@ public class ContainerAnalysisService {
             result.add(item.asText());
         }
         return result;
+    }
+
+    private String buildPromptWithReadme(final AnalysisContainer container) {
+        try {
+            final String readme = container.readFileFromContainer(README_PATH);
+            if (readme != null && !readme.isBlank()) {
+                final String truncated = readme.length() > MAX_README_LENGTH
+                        ? readme.substring(0, MAX_README_LENGTH) + "\n...(truncated)"
+                        : readme;
+
+                LOG.info("README.md found ({} chars), including in prompt",
+                        readme.length());
+
+                return "Here is the project's README.md for additional context: "
+                        + "--- " + truncated + " --- " + ANALYSIS_PROMPT;
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to read README.md from container", e);
+        }
+
+        LOG.info("No README.md found, using base prompt");
+        return ANALYSIS_PROMPT;
     }
 
     private String extractJson(final String output) {

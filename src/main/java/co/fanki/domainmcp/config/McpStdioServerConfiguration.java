@@ -192,7 +192,9 @@ public class McpStdioServerConfiguration {
                                 + " project before using get_class_context,"
                                 + " get_method_context, or"
                                 + " get_stack_trace_context. Required for"
-                                + " Datadog error correlation.",
+                                + " Datadog error correlation. Also reads"
+                                + " README.md to generate a project"
+                                + " description for richer context.",
                         ANALYZE_PROJECT_SCHEMA),
                 (exchange, arguments) -> {
                     final String repositoryUrl =
@@ -220,7 +222,8 @@ public class McpStdioServerConfiguration {
                         "List all indexed projects. Use this to check"
                                 + " which repositories have been analyzed"
                                 + " and are available for Datadog stack"
-                                + " trace correlation.",
+                                + " trace correlation. Includes project"
+                                + " description derived from README.",
                         LIST_PROJECTS_SCHEMA),
                 (exchange, arguments) -> {
                     try {
@@ -241,7 +244,8 @@ public class McpStdioServerConfiguration {
                 new Tool("get_class_context",
                         "Get business context for a Java class by its"
                                 + " fully qualified name. Returns class"
-                                + " type, description, and all methods."
+                                + " type, description, all methods, and"
+                                + " project description from README."
                                 + " Use this when Datadog shows an error"
                                 + " in a specific class to understand its"
                                 + " purpose and behavior.",
@@ -269,7 +273,8 @@ public class McpStdioServerConfiguration {
                 new Tool("get_method_context",
                         "Get detailed context for a specific method,"
                                 + " including business logic, dependencies,"
-                                + " exceptions, and HTTP endpoint info."
+                                + " exceptions, HTTP endpoint info, and"
+                                + " project description from README."
                                 + " Use this when Datadog shows an error"
                                 + " in a specific method to understand"
                                 + " what it does and why it might fail.",
@@ -302,7 +307,8 @@ public class McpStdioServerConfiguration {
                                 + " Takes a full stack trace (array of"
                                 + " className/methodName/lineNumber frames)"
                                 + " and returns business context for each"
-                                + " frame. Use this IMMEDIATELY after"
+                                + " frame, plus project description from"
+                                + " README. Use this IMMEDIATELY after"
                                 + " getting error traces or stack traces"
                                 + " from Datadog to understand the"
                                 + " execution path and root cause.",

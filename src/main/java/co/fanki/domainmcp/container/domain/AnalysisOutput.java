@@ -18,6 +18,7 @@ public final class AnalysisOutput implements ValueObject {
     private final boolean success;
     private final String rawOutput;
     private final String summary;
+    private final String projectDescription;
     private final List<EndpointInfo> endpoints;
     private final List<ClassInfo> classes;
     private final String errorMessage;
@@ -28,6 +29,7 @@ public final class AnalysisOutput implements ValueObject {
             final boolean theSuccess,
             final String theRawOutput,
             final String theSummary,
+            final String theProjectDescription,
             final List<EndpointInfo> theEndpoints,
             final List<ClassInfo> theClasses,
             final String theErrorMessage,
@@ -36,6 +38,7 @@ public final class AnalysisOutput implements ValueObject {
         this.success = theSuccess;
         this.rawOutput = theRawOutput;
         this.summary = theSummary;
+        this.projectDescription = theProjectDescription;
         this.endpoints = theEndpoints != null ? List.copyOf(theEndpoints) : List.of();
         this.classes = theClasses != null ? List.copyOf(theClasses) : List.of();
         this.errorMessage = theErrorMessage;
@@ -59,8 +62,8 @@ public final class AnalysisOutput implements ValueObject {
             final List<EndpointInfo> endpoints,
             final Instant startedAt,
             final Instant completedAt) {
-        return new AnalysisOutput(true, rawOutput, summary, endpoints, List.of(),
-                null, startedAt, completedAt);
+        return new AnalysisOutput(true, rawOutput, summary, null, endpoints,
+                List.of(), null, startedAt, completedAt);
     }
 
     /**
@@ -68,6 +71,7 @@ public final class AnalysisOutput implements ValueObject {
      *
      * @param rawOutput the raw Claude Code output
      * @param summary the analysis summary
+     * @param projectDescription the project description derived from README
      * @param endpoints the extracted endpoints
      * @param classes the extracted class information
      * @param startedAt when analysis started
@@ -77,12 +81,13 @@ public final class AnalysisOutput implements ValueObject {
     public static AnalysisOutput successWithClasses(
             final String rawOutput,
             final String summary,
+            final String projectDescription,
             final List<EndpointInfo> endpoints,
             final List<ClassInfo> classes,
             final Instant startedAt,
             final Instant completedAt) {
-        return new AnalysisOutput(true, rawOutput, summary, endpoints, classes,
-                null, startedAt, completedAt);
+        return new AnalysisOutput(true, rawOutput, summary, projectDescription,
+                endpoints, classes, null, startedAt, completedAt);
     }
 
     /**
@@ -97,8 +102,8 @@ public final class AnalysisOutput implements ValueObject {
             final String errorMessage,
             final Instant startedAt,
             final Instant completedAt) {
-        return new AnalysisOutput(false, null, null, null, null, errorMessage,
-                startedAt, completedAt);
+        return new AnalysisOutput(false, null, null, null, null, null,
+                errorMessage, startedAt, completedAt);
     }
 
     public boolean isSuccess() {
@@ -111,6 +116,10 @@ public final class AnalysisOutput implements ValueObject {
 
     public String summary() {
         return summary;
+    }
+
+    public String projectDescription() {
+        return projectDescription;
     }
 
     public List<EndpointInfo> endpoints() {

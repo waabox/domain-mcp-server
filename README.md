@@ -1,3 +1,35 @@
+<p align="left">
+  <!-- Build -->
+  <a href="https://github.com/waabox/domain-mcp-server/actions">
+    <img src="https://github.com/waabox/domain-mcp-server/actions/workflows/ci.yml/badge.svg" alt="Build Status" />
+  </a>
+
+  <!-- Java -->
+  <img src="https://img.shields.io/badge/Java-21-orange?logo=java" alt="Java 21" />
+
+  <!-- Spring Boot -->
+  <img src="https://img.shields.io/badge/Spring%20Boot-3.x-brightgreen?logo=springboot" alt="Spring Boot" />
+
+  <!-- MCP -->
+  <img src="https://img.shields.io/badge/MCP-Model%20Context%20Protocol-blue" alt="MCP" />
+
+  <!-- Datadog MCP compatibility -->
+  <img src="https://img.shields.io/badge/Works%20with-Datadog%20MCP-purple" alt="Works with Datadog MCP" />
+
+  <!-- Docker -->
+  <a href="https://github.com/waabox/domain-mcp-server/pkgs/container/domain-mcp-server">
+    <img src="https://img.shields.io/badge/Docker-available-blue?logo=docker" alt="Docker image" />
+  </a>
+
+  <!-- Release -->
+  <a href="https://github.com/waabox/domain-mcp-server/releases">
+    <img src="https://img.shields.io/github/v/release/waabox/domain-mcp-server?color=blue" alt="Latest Release" />
+  </a>
+
+  <!-- License -->
+  <img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT License" />
+</p>
+
 # domain-mcp-server
 
 Domain-aware MCP server that clones and analyzes your microservices

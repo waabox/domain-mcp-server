@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -625,6 +626,167 @@ class NodeJsSourceParserTest {
 
         assertEquals("service", simpleName);
         assertEquals("services.user.user", packageName);
+    }
+
+    // -- extractMethodParameters() --
+
+    @Test
+    void whenExtractingParams_givenTypedTsParam_shouldReturnIt(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+
+        writeSourceFile(sourceRoot, "services", "user.service.ts", """
+                import { UserRepository } from './user.repository';
+
+                export class UserService {
+                    findUser(repo: UserRepository) {
+                        return repo.find();
+                    }
+                }
+                """);
+
+        writeSourceFile(sourceRoot, "services", "user.repository.ts", """
+                export class UserRepository {
+                    find() { return null; }
+                }
+                """);
+
+        final Path file = sourceRoot
+                .resolve("services/user.service.ts");
+        final Set<String> known = Set.of(
+                "services.user.service",
+                "services.user.repository");
+
+        final Map<String, List<String>> result =
+                parser.extractMethodParameters(file, sourceRoot, known);
+
+        assertTrue(result.containsKey("findUser"));
+        assertEquals(List.of("services.user.repository"),
+                result.get("findUser"));
+    }
+
+    @Test
+    void whenExtractingParams_givenMultipleTypedParams_shouldReturnAll(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+
+        writeSourceFile(sourceRoot, "services", "order.service.ts", """
+                import { OrderRepo } from './order.repo';
+                import { Customer } from './customer';
+
+                export class OrderService {
+                    placeOrder(repo: OrderRepo, customer: Customer, note: string) {
+                    }
+                }
+                """);
+
+        writeSourceFile(sourceRoot, "services", "order.repo.ts", """
+                export class OrderRepo {}
+                """);
+
+        writeSourceFile(sourceRoot, "services", "customer.ts", """
+                export class Customer {}
+                """);
+
+        final Path file = sourceRoot
+                .resolve("services/order.service.ts");
+        final Set<String> known = Set.of(
+                "services.order.service",
+                "services.order.repo",
+                "services.customer");
+
+        final Map<String, List<String>> result =
+                parser.extractMethodParameters(file, sourceRoot, known);
+
+        assertTrue(result.containsKey("placeOrder"));
+        final List<String> params = result.get("placeOrder");
+        assertEquals(2, params.size());
+        assertTrue(params.contains("services.order.repo"));
+        assertTrue(params.contains("services.customer"));
+    }
+
+    @Test
+    void whenExtractingParams_givenNoTypeAnnotations_shouldReturnEmpty(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+
+        writeSourceFile(sourceRoot, "lib", "processor.js", """
+                module.exports = {
+                    process(data, count) {
+                        return data;
+                    }
+                };
+                """);
+
+        final Path file = sourceRoot.resolve("lib/processor.js");
+        final Set<String> known = Set.of("lib.processor");
+
+        final Map<String, List<String>> result =
+                parser.extractMethodParameters(file, sourceRoot, known);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void whenExtractingParams_givenOnlyPrimitiveTypes_shouldReturnEmpty(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+
+        writeSourceFile(sourceRoot, "services", "calc.ts", """
+                export class Calculator {
+                    add(a: number, b: number): number {
+                        return a + b;
+                    }
+                }
+                """);
+
+        final Path file = sourceRoot.resolve("services/calc.ts");
+        final Set<String> known = Set.of("services.calc");
+
+        final Map<String, List<String>> result =
+                parser.extractMethodParameters(file, sourceRoot, known);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void whenExtractingParams_givenAsyncFunction_shouldExtractParams(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+
+        writeSourceFile(sourceRoot, "services", "api.service.ts", """
+                import { HttpClient } from './http.client';
+
+                export class ApiService {
+                    async fetchData(client: HttpClient) {
+                        return client.get('/data');
+                    }
+                }
+                """);
+
+        writeSourceFile(sourceRoot, "services", "http.client.ts", """
+                export class HttpClient {
+                    get(url: string) { return null; }
+                }
+                """);
+
+        final Path file = sourceRoot
+                .resolve("services/api.service.ts");
+        final Set<String> known = Set.of(
+                "services.api.service",
+                "services.http.client");
+
+        final Map<String, List<String>> result =
+                parser.extractMethodParameters(file, sourceRoot, known);
+
+        assertTrue(result.containsKey("fetchData"));
+        assertEquals(List.of("services.http.client"),
+                result.get("fetchData"));
     }
 
     // -- Helper methods --

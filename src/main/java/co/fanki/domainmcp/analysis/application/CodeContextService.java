@@ -5,6 +5,8 @@ import co.fanki.domainmcp.analysis.domain.ClaudeApiClient;
 import co.fanki.domainmcp.analysis.domain.ClaudeApiClient.BatchClassInput;
 import co.fanki.domainmcp.analysis.domain.ClaudeApiClient.ClassAnalysisResult;
 import co.fanki.domainmcp.analysis.domain.ClaudeApiClient.MethodAnalysisResult;
+import co.fanki.domainmcp.analysis.domain.MethodParameter;
+import co.fanki.domainmcp.analysis.domain.MethodParameterRepository;
 import co.fanki.domainmcp.analysis.domain.ProjectGraph;
 import co.fanki.domainmcp.analysis.domain.GraphService;
 import co.fanki.domainmcp.analysis.domain.SourceClass;
@@ -31,8 +33,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -65,6 +69,7 @@ public class CodeContextService {
     private final ProjectRepository projectRepository;
     private final SourceClassRepository sourceClassRepository;
     private final SourceMethodRepository sourceMethodRepository;
+    private final MethodParameterRepository methodParameterRepository;
     private final GraphService graphCache;
     private final ClaudeApiClient claudeApiClient;
     private final String cloneBasePath;
@@ -75,6 +80,7 @@ public class CodeContextService {
      * @param theProjectRepository the project repository
      * @param theSourceClassRepository the source class repository
      * @param theSourceMethodRepository the source method repository
+     * @param theMethodParameterRepository the method parameter repository
      * @param theGraphCache the project graph cache
      * @param theClaudeApiKey the Claude API key
      * @param theCloneBasePath the base path for cloning repositories
@@ -83,6 +89,7 @@ public class CodeContextService {
             final ProjectRepository theProjectRepository,
             final SourceClassRepository theSourceClassRepository,
             final SourceMethodRepository theSourceMethodRepository,
+            final MethodParameterRepository theMethodParameterRepository,
             final GraphService theGraphCache,
             @Value("${claude.api-key}") final String theClaudeApiKey,
             @Value("${git.clone-base-path:/tmp/domain-mcp-repos}")
@@ -90,6 +97,7 @@ public class CodeContextService {
         this.projectRepository = theProjectRepository;
         this.sourceClassRepository = theSourceClassRepository;
         this.sourceMethodRepository = theSourceMethodRepository;
+        this.methodParameterRepository = theMethodParameterRepository;
         this.graphCache = theGraphCache;
         this.claudeApiClient = new ClaudeApiClient(theClaudeApiKey);
         this.cloneBasePath = theCloneBasePath;
@@ -222,6 +230,11 @@ public class CodeContextService {
                 }
             }
 
+            // Extract and persist method parameters
+            final int paramCount = extractAndPersistMethodParameters(
+                    parser, cloneDir, graph);
+            LOG.info("Extracted {} method parameters", paramCount);
+
             // Persist graph JSON to project
             final String graphJson = graph.toJson();
             completeAnalysis(project, graphJson);
@@ -316,6 +329,103 @@ public class CodeContextService {
     @Transactional
     void persistSourceMethod(final SourceMethod sourceMethod) {
         sourceMethodRepository.save(sourceMethod);
+    }
+
+    /**
+     * Extracts method parameters from all source files and persists them.
+     *
+     * <p>For each source file, calls the parser's extractMethodParameters,
+     * then looks up the corresponding SourceMethod and SourceClass to
+     * create and persist MethodParameter entries.</p>
+     *
+     * @param parser the source parser
+     * @param cloneDir the cloned project root
+     * @param graph the project graph with classId bindings
+     * @return the number of parameters persisted
+     */
+    private int extractAndPersistMethodParameters(
+            final SourceParser parser, final Path cloneDir,
+            final ProjectGraph graph) {
+
+        final Set<String> knownIdentifiers = graph.identifiers();
+        final Path sourceRootPath = cloneDir.resolve(parser.sourceRoot());
+        int paramCount = 0;
+
+        // Build a lookup: identifier -> classId from the graph
+        final Map<String, String> identifierToClassId = new HashMap<>();
+        for (final String identifier : knownIdentifiers) {
+            final String classId = graph.classId(identifier);
+            if (classId != null) {
+                identifierToClassId.put(identifier, classId);
+            }
+        }
+
+        for (final String identifier : knownIdentifiers) {
+            final String sourceFile = graph.sourceFile(identifier);
+            final String classId = identifierToClassId.get(identifier);
+
+            if (sourceFile == null || classId == null) {
+                continue;
+            }
+
+            final Path filePath = cloneDir.resolve(sourceFile);
+            if (!Files.exists(filePath)) {
+                continue;
+            }
+
+            try {
+                final Map<String, List<String>> methodParams =
+                        parser.extractMethodParameters(filePath,
+                                sourceRootPath, knownIdentifiers);
+
+                for (final var entry : methodParams.entrySet()) {
+                    final String methodName = entry.getKey();
+                    final List<String> paramTypes = entry.getValue();
+
+                    // Look up the method by name and class
+                    final List<SourceMethod> methods =
+                            sourceMethodRepository.findByClassId(classId);
+                    final Optional<SourceMethod> method = methods.stream()
+                            .filter(m -> m.methodName().equals(methodName))
+                            .findFirst();
+
+                    if (method.isEmpty()) {
+                        continue;
+                    }
+
+                    final List<MethodParameter> params = new ArrayList<>();
+                    for (int pos = 0; pos < paramTypes.size(); pos++) {
+                        final String paramClassId =
+                                identifierToClassId.get(paramTypes.get(pos));
+                        if (paramClassId != null) {
+                            params.add(MethodParameter.create(
+                                    method.get().id(), pos, paramClassId));
+                        }
+                    }
+
+                    if (!params.isEmpty()) {
+                        persistMethodParameters(params);
+                        paramCount += params.size();
+                    }
+                }
+
+            } catch (final IOException e) {
+                LOG.warn("Failed to extract parameters from {}: {}",
+                        sourceFile, e.getMessage());
+            }
+        }
+
+        return paramCount;
+    }
+
+    /**
+     * Persists method parameters.
+     *
+     * @param params the method parameters to persist
+     */
+    @Transactional
+    void persistMethodParameters(final List<MethodParameter> params) {
+        methodParameterRepository.saveAll(params);
     }
 
     /**

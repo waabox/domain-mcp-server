@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -42,7 +43,7 @@ public abstract class SourceParser {
      *
      * @return the source root (e.g., "src/main/java" for Java)
      */
-    protected abstract String sourceRoot();
+    public abstract String sourceRoot();
 
     /**
      * Discovers all production source files under the source root.
@@ -85,6 +86,25 @@ public abstract class SourceParser {
      * @throws IOException if file reading fails
      */
     protected abstract boolean isEntryPoint(Path file) throws IOException;
+
+    /**
+     * Extracts method parameters from a source file, returning only
+     * parameters whose type matches a known project identifier.
+     *
+     * <p>The returned map keys are method names, and values are ordered
+     * lists of parameter type identifiers (FQCNs for Java, dot-separated
+     * for Node.js). The list index corresponds to the parameter position
+     * among matched parameters.</p>
+     *
+     * @param file the source file to analyze
+     * @param sourceRoot the resolved source root path
+     * @param knownIdentifiers all known identifiers in the project
+     * @return map of method name to list of known parameter type identifiers
+     * @throws IOException if file reading fails
+     */
+    public abstract Map<String, List<String>> extractMethodParameters(
+            Path file, Path sourceRoot, Set<String> knownIdentifiers)
+            throws IOException;
 
     /**
      * Builds a {@link ProjectGraph} from a local project clone.

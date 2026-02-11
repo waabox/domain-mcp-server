@@ -7,9 +7,14 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -36,6 +41,13 @@ public class JavaSourceParser extends SourceParser {
 
     private static final String SOURCE_ROOT = "src/main/java";
 
+    /** Matches a Java method declaration with its parameter list. */
+    private static final Pattern METHOD_DECLARATION_PATTERN = Pattern.compile(
+            "(?:public|protected|private)?\\s*"
+                    + "(?:static\\s+)?(?:final\\s+)?(?:synchronized\\s+)?"
+                    + "(?:<[^>]+>\\s+)?"
+                    + "\\S+\\s+(\\w+)\\s*\\(([^)]*)\\)");
+
     private static final Set<String> ENTRY_POINT_ANNOTATIONS = Set.of(
             "@RestController",
             "@Controller",
@@ -53,7 +65,7 @@ public class JavaSourceParser extends SourceParser {
 
     /** {@inheritDoc} */
     @Override
-    protected String sourceRoot() {
+    public String sourceRoot() {
         return SOURCE_ROOT;
     }
 
@@ -166,6 +178,216 @@ public class JavaSourceParser extends SourceParser {
         }
 
         return false;
+    }
+
+    /**
+     * Extracts method parameters from a Java source file.
+     *
+     * <p>Parses import statements to build a type resolution map, then
+     * scans method declarations in the class body to match parameter types
+     * against known project identifiers.</p>
+     *
+     * @param file the Java source file
+     * @param sourceRoot the resolved source root path
+     * @param knownIdentifiers all known identifiers in the project
+     * @return map of method name to list of known parameter type identifiers
+     * @throws IOException if file reading fails
+     */
+    @Override
+    public Map<String, List<String>> extractMethodParameters(
+            final Path file, final Path sourceRoot,
+            final Set<String> knownIdentifiers) throws IOException {
+
+        final List<String> lines = Files.readAllLines(file);
+        final String filePackage = extractPackage(lines);
+        final Map<String, String> importMap = buildImportMap(lines);
+
+        final Map<String, List<String>> result = new HashMap<>();
+        boolean inClassBody = false;
+
+        for (final String line : lines) {
+            final String trimmed = line.trim();
+
+            if (!inClassBody && isClassDeclaration(trimmed)) {
+                inClassBody = true;
+                continue;
+            }
+
+            if (!inClassBody) {
+                continue;
+            }
+
+            final Matcher matcher = METHOD_DECLARATION_PATTERN.matcher(trimmed);
+            if (matcher.find()) {
+                final String methodName = matcher.group(1);
+                final String paramList = matcher.group(2).trim();
+
+                if (paramList.isEmpty()) {
+                    continue;
+                }
+
+                final List<String> matchedParams =
+                        resolveParameterTypes(paramList, importMap,
+                                filePackage, knownIdentifiers);
+
+                if (!matchedParams.isEmpty()) {
+                    result.put(methodName, matchedParams);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Resolves parameter types from a method's parameter list string.
+     *
+     * <p>Splits by comma, extracts the type name (handling generics and
+     * annotations), resolves against imports and same-package, and
+     * filters to known identifiers only.</p>
+     */
+    private List<String> resolveParameterTypes(
+            final String paramList,
+            final Map<String, String> importMap,
+            final String filePackage,
+            final Set<String> knownIdentifiers) {
+
+        final List<String> matched = new ArrayList<>();
+        final String[] params = paramList.split(",");
+
+        for (final String param : params) {
+            final String typeName = extractTypeName(param.trim());
+            if (typeName == null || typeName.isEmpty()) {
+                continue;
+            }
+
+            final String resolved = resolveType(typeName, importMap,
+                    filePackage, knownIdentifiers);
+            if (resolved != null) {
+                matched.add(resolved);
+            }
+        }
+
+        return matched;
+    }
+
+    /**
+     * Extracts the simple type name from a parameter declaration.
+     *
+     * <p>Handles annotations, final modifier, generics (stripping them),
+     * and varargs.</p>
+     */
+    private String extractTypeName(final String paramDecl) {
+        if (paramDecl.isEmpty()) {
+            return null;
+        }
+
+        // Split into tokens
+        final String[] tokens = paramDecl.split("\\s+");
+        String typeName = null;
+
+        for (final String token : tokens) {
+            // Skip annotations and 'final'
+            if (token.startsWith("@") || "final".equals(token)) {
+                continue;
+            }
+            // First non-annotation, non-final token is the type
+            typeName = token;
+            break;
+        }
+
+        if (typeName == null) {
+            return null;
+        }
+
+        // Strip generics: List<Foo> -> List
+        final int genericIdx = typeName.indexOf('<');
+        if (genericIdx > 0) {
+            typeName = typeName.substring(0, genericIdx);
+        }
+
+        // Strip varargs
+        if (typeName.endsWith("...")) {
+            typeName = typeName.substring(0, typeName.length() - 3);
+        }
+
+        // Strip array brackets
+        if (typeName.endsWith("[]")) {
+            typeName = typeName.substring(0, typeName.length() - 2);
+        }
+
+        return typeName;
+    }
+
+    /**
+     * Resolves a simple type name to an FQCN using imports or same-package.
+     */
+    private String resolveType(final String simpleName,
+            final Map<String, String> importMap,
+            final String filePackage,
+            final Set<String> knownIdentifiers) {
+
+        // Already an FQCN?
+        if (knownIdentifiers.contains(simpleName)) {
+            return simpleName;
+        }
+
+        // Check imports
+        final String fromImport = importMap.get(simpleName);
+        if (fromImport != null && knownIdentifiers.contains(fromImport)) {
+            return fromImport;
+        }
+
+        // Check same package
+        if (filePackage != null && !filePackage.isEmpty()) {
+            final String samePackage = filePackage + "." + simpleName;
+            if (knownIdentifiers.contains(samePackage)) {
+                return samePackage;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extracts the package name from the source file lines.
+     */
+    private String extractPackage(final List<String> lines) {
+        for (final String line : lines) {
+            final String trimmed = line.trim();
+            if (trimmed.startsWith("package ") && trimmed.endsWith(";")) {
+                return trimmed.substring("package ".length(),
+                        trimmed.length() - 1).trim();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Builds a map from simple class names to FQCNs based on import
+     * statements in the source file.
+     */
+    private Map<String, String> buildImportMap(final List<String> lines) {
+        final Map<String, String> importMap = new HashMap<>();
+
+        for (final String line : lines) {
+            final String trimmed = line.trim();
+
+            if (isClassDeclaration(trimmed)) {
+                break;
+            }
+
+            final String fqcn = parseImportLine(trimmed);
+            if (fqcn != null) {
+                final int lastDot = fqcn.lastIndexOf('.');
+                if (lastDot > 0) {
+                    final String simpleName = fqcn.substring(lastDot + 1);
+                    importMap.put(simpleName, fqcn);
+                }
+            }
+        }
+
+        return importMap;
     }
 
     /**

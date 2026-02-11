@@ -7,8 +7,11 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -68,6 +71,14 @@ public class NodeJsSourceParser extends SourceParser {
     private static final Pattern EXPRESS_ROUTE_PATTERN = Pattern.compile(
             "(app|router)\\.(get|post|put|delete|patch|all|use)\\s*\\(");
 
+    /** Matches TypeScript function/method declarations with typed params. */
+    private static final Pattern TS_FUNCTION_PATTERN = Pattern.compile(
+            "(?:async\\s+)?(?:function\\s+)?(\\w+)\\s*\\(([^)]*)\\)");
+
+    /** Matches ES6 named import to extract imported names and path. */
+    private static final Pattern ES6_NAMED_IMPORT_PATTERN = Pattern.compile(
+            "import\\s+\\{([^}]+)}\\s+from\\s+['\"](\\..*?)['\"]");
+
     /** {@inheritDoc} */
     @Override
     public String language() {
@@ -76,7 +87,7 @@ public class NodeJsSourceParser extends SourceParser {
 
     /** {@inheritDoc} */
     @Override
-    protected String sourceRoot() {
+    public String sourceRoot() {
         return SOURCE_ROOT;
     }
 
@@ -196,6 +207,149 @@ public class NodeJsSourceParser extends SourceParser {
         final String content = Files.readString(file);
         return NESTJS_CONTROLLER_PATTERN.matcher(content).find()
                 || EXPRESS_ROUTE_PATTERN.matcher(content).find();
+    }
+
+    /**
+     * Extracts method parameters from a TypeScript/JavaScript source file.
+     *
+     * <p>Parses import statements to build a type resolution map (imported
+     * name to project identifier), then scans function/method declarations
+     * for TypeScript type annotations and matches them against known
+     * identifiers.</p>
+     *
+     * @param file the source file to analyze
+     * @param sourceRoot the resolved source root path
+     * @param knownIdentifiers all known identifiers in the project
+     * @return map of method name to list of known parameter type identifiers
+     * @throws IOException if file reading fails
+     */
+    @Override
+    public Map<String, List<String>> extractMethodParameters(
+            final Path file, final Path sourceRoot,
+            final Set<String> knownIdentifiers) throws IOException {
+
+        final String content = Files.readString(file);
+        final Path fileDir = file.getParent();
+
+        // Build a map from imported type name to project identifier
+        final Map<String, String> typeMap = buildTypeImportMap(
+                content, fileDir, knownIdentifiers);
+
+        final Map<String, List<String>> result = new HashMap<>();
+
+        final Matcher funcMatcher = TS_FUNCTION_PATTERN.matcher(content);
+        while (funcMatcher.find()) {
+            final String methodName = funcMatcher.group(1);
+            final String paramList = funcMatcher.group(2).trim();
+
+            // Skip common keywords that match the pattern
+            if ("if".equals(methodName) || "for".equals(methodName)
+                    || "while".equals(methodName)
+                    || "switch".equals(methodName)
+                    || "catch".equals(methodName)
+                    || "require".equals(methodName)
+                    || "import".equals(methodName)) {
+                continue;
+            }
+
+            if (paramList.isEmpty()) {
+                continue;
+            }
+
+            final List<String> matchedParams =
+                    resolveTypescriptParams(paramList, typeMap);
+
+            if (!matchedParams.isEmpty()) {
+                result.put(methodName, matchedParams);
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Resolves TypeScript parameter type annotations against known types.
+     *
+     * <p>Parses parameter declarations of the form
+     * {@code paramName: TypeName} and matches TypeName against the
+     * import-to-identifier map.</p>
+     */
+    private List<String> resolveTypescriptParams(
+            final String paramList,
+            final Map<String, String> typeMap) {
+
+        final List<String> matched = new ArrayList<>();
+        final String[] params = paramList.split(",");
+
+        for (final String param : params) {
+            final String trimmed = param.trim();
+
+            // Look for `: TypeName` pattern
+            final int colonIdx = trimmed.indexOf(':');
+            if (colonIdx < 0) {
+                continue;
+            }
+
+            String typeName = trimmed.substring(colonIdx + 1).trim();
+
+            // Strip generics: Array<Foo> -> Array
+            final int genericIdx = typeName.indexOf('<');
+            if (genericIdx > 0) {
+                typeName = typeName.substring(0, genericIdx);
+            }
+
+            // Strip array suffix
+            if (typeName.endsWith("[]")) {
+                typeName = typeName.substring(0, typeName.length() - 2);
+            }
+
+            typeName = typeName.trim();
+
+            final String resolved = typeMap.get(typeName);
+            if (resolved != null) {
+                matched.add(resolved);
+            }
+        }
+
+        return matched;
+    }
+
+    /**
+     * Builds a map from imported type names to project identifiers by
+     * parsing ES6 named imports with relative paths.
+     */
+    private Map<String, String> buildTypeImportMap(
+            final String content, final Path fileDir,
+            final Set<String> knownIdentifiers) {
+
+        final Map<String, String> typeMap = new HashMap<>();
+
+        final Matcher matcher = ES6_NAMED_IMPORT_PATTERN.matcher(content);
+        while (matcher.find()) {
+            final String importedNames = matcher.group(1);
+            final String importPath = matcher.group(2);
+
+            final String resolvedId = resolveImport(importPath, fileDir,
+                    knownIdentifiers);
+            if (resolvedId == null) {
+                continue;
+            }
+
+            // Map each imported name to the resolved identifier
+            for (final String name : importedNames.split(",")) {
+                final String trimmed = name.trim();
+                if (!trimmed.isEmpty()) {
+                    // Handle `Name as Alias` - use the alias
+                    final int asIdx = trimmed.indexOf(" as ");
+                    final String key = asIdx >= 0
+                            ? trimmed.substring(asIdx + 4).trim()
+                            : trimmed;
+                    typeMap.put(key, resolvedId);
+                }
+            }
+        }
+
+        return typeMap;
     }
 
     /**

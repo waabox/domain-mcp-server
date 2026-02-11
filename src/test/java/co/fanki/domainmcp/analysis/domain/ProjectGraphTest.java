@@ -3,6 +3,7 @@ package co.fanki.domainmcp.analysis.domain;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -693,6 +694,181 @@ class ProjectGraphTest {
         assertTrue(json.contains("\"entryPoints\""));
         assertTrue(json.contains("co.fanki.User"));
         assertTrue(json.contains("src/User.java"));
+    }
+
+    // -- addMethodParameter ------------------------------------------------
+
+    @Test
+    void whenAddingMethodParameter_givenBothNodesExist_shouldBeRetrievable() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.Controller", "src/Controller.java");
+        graph.addNode("co.fanki.UserDto", "src/UserDto.java");
+
+        graph.addMethodParameter(
+                "co.fanki.Controller", "createUser", 0, "co.fanki.UserDto");
+
+        final Map<String, List<ProjectGraph.MethodParameterLink>> params =
+                graph.methodParameters("co.fanki.Controller");
+
+        assertEquals(1, params.size());
+        assertTrue(params.containsKey("createUser"));
+
+        final List<ProjectGraph.MethodParameterLink> links =
+                params.get("createUser");
+        assertEquals(1, links.size());
+        assertEquals(0, links.get(0).position());
+        assertEquals("co.fanki.UserDto", links.get(0).targetIdentifier());
+    }
+
+    @Test
+    void whenAddingMethodParameter_givenUnknownOwner_shouldIgnoreSilently() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.UserDto", "src/UserDto.java");
+
+        graph.addMethodParameter(
+                "co.fanki.Unknown", "create", 0, "co.fanki.UserDto");
+
+        assertTrue(graph.methodParameters("co.fanki.Unknown").isEmpty());
+    }
+
+    @Test
+    void whenAddingMethodParameter_givenUnknownTarget_shouldIgnoreSilently() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.Controller", "src/Controller.java");
+
+        graph.addMethodParameter(
+                "co.fanki.Controller", "create", 0, "co.fanki.Unknown");
+
+        assertTrue(
+                graph.methodParameters("co.fanki.Controller").isEmpty());
+    }
+
+    @Test
+    void whenAddingMethodParameter_givenNullMethodName_shouldThrowException() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.Controller", "src/Controller.java");
+        graph.addNode("co.fanki.UserDto", "src/UserDto.java");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> graph.addMethodParameter(
+                        "co.fanki.Controller", null, 0,
+                        "co.fanki.UserDto"));
+    }
+
+    @Test
+    void whenAddingMethodParameter_givenNegativePosition_shouldThrowException() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.Controller", "src/Controller.java");
+        graph.addNode("co.fanki.UserDto", "src/UserDto.java");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> graph.addMethodParameter(
+                        "co.fanki.Controller", "create", -1,
+                        "co.fanki.UserDto"));
+    }
+
+    @Test
+    void whenQueryingMethodParameterTargets_givenClassWithParams_shouldReturnTargetSet() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.Controller", "src/Controller.java");
+        graph.addNode("co.fanki.UserDto", "src/UserDto.java");
+        graph.addNode("co.fanki.OrderDto", "src/OrderDto.java");
+
+        graph.addMethodParameter(
+                "co.fanki.Controller", "create", 0, "co.fanki.UserDto");
+        graph.addMethodParameter(
+                "co.fanki.Controller", "order", 0, "co.fanki.OrderDto");
+
+        final Set<String> targets =
+                graph.methodParameterTargets("co.fanki.Controller");
+
+        assertEquals(
+                Set.of("co.fanki.UserDto", "co.fanki.OrderDto"), targets);
+    }
+
+    @Test
+    void whenQueryingMethodParameterTargets_givenClassWithNoParams_shouldReturnEmptySet() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.Controller", "src/Controller.java");
+
+        final Set<String> targets =
+                graph.methodParameterTargets("co.fanki.Controller");
+
+        assertTrue(targets.isEmpty());
+    }
+
+    @Test
+    void whenSerializingToJson_givenMethodParameters_shouldRoundTrip() {
+        final ProjectGraph original = new ProjectGraph();
+        original.addNode("co.fanki.Controller", "src/Controller.java");
+        original.addNode("co.fanki.UserDto", "src/UserDto.java");
+
+        original.addMethodParameter(
+                "co.fanki.Controller", "createUser", 0,
+                "co.fanki.UserDto");
+
+        final ProjectGraph restored =
+                ProjectGraph.fromJson(original.toJson());
+
+        final Map<String, List<ProjectGraph.MethodParameterLink>> params =
+                restored.methodParameters("co.fanki.Controller");
+
+        assertEquals(1, params.size());
+
+        final List<ProjectGraph.MethodParameterLink> links =
+                params.get("createUser");
+        assertEquals(1, links.size());
+        assertEquals(0, links.get(0).position());
+        assertEquals("co.fanki.UserDto", links.get(0).targetIdentifier());
+    }
+
+    @Test
+    void whenDeserializingFromJson_givenOldFormatWithoutMethodParameters_shouldLoadWithEmptyParams() {
+        final String oldFormatJson = "{\"nodes\":{\"co.fanki.A\":"
+                + "{\"sourceFile\":\"src/A.java\"}},\"edges\":{},"
+                + "\"entryPoints\":[]}";
+
+        final ProjectGraph restored = ProjectGraph.fromJson(oldFormatJson);
+
+        assertEquals(1, restored.nodeCount());
+        assertTrue(restored.methodParameters("co.fanki.A").isEmpty());
+    }
+
+    @Test
+    void whenAddingMethodParameter_givenMultipleMethodsAndPositions_shouldTrackAllCorrectly() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.Service", "src/Service.java");
+        graph.addNode("co.fanki.UserDto", "src/UserDto.java");
+        graph.addNode("co.fanki.OrderDto", "src/OrderDto.java");
+
+        graph.addMethodParameter(
+                "co.fanki.Service", "process", 0, "co.fanki.UserDto");
+        graph.addMethodParameter(
+                "co.fanki.Service", "process", 1, "co.fanki.OrderDto");
+        graph.addMethodParameter(
+                "co.fanki.Service", "validate", 0, "co.fanki.UserDto");
+
+        final Map<String, List<ProjectGraph.MethodParameterLink>> params =
+                graph.methodParameters("co.fanki.Service");
+
+        assertEquals(2, params.size());
+
+        final List<ProjectGraph.MethodParameterLink> processLinks =
+                params.get("process");
+        assertEquals(2, processLinks.size());
+        assertEquals(0, processLinks.get(0).position());
+        assertEquals("co.fanki.UserDto",
+                processLinks.get(0).targetIdentifier());
+        assertEquals(1, processLinks.get(1).position());
+        assertEquals("co.fanki.OrderDto",
+                processLinks.get(1).targetIdentifier());
+
+        final List<ProjectGraph.MethodParameterLink> validateLinks =
+                params.get("validate");
+        assertEquals(1, validateLinks.size());
+        assertEquals(0, validateLinks.get(0).position());
+        assertEquals("co.fanki.UserDto",
+                validateLinks.get(0).targetIdentifier());
     }
 
     // -- helpers -----------------------------------------------------------

@@ -236,7 +236,7 @@ public class CodeContextService {
                 paramCount += extractMethodParams(
                         parser, cloneDir, sourceRootPath,
                         knownIdentifiers, graph,
-                        sourceFile, methods);
+                        identifier, sourceFile, methods);
             }
 
             LOG.info("Phase 1 complete. Classes: {}, Methods: {}, "
@@ -485,6 +485,7 @@ public class CodeContextService {
      * @param sourceRootPath the resolved source root path
      * @param knownIdentifiers all known identifiers in the project
      * @param graph the project graph with classId bindings
+     * @param identifier the class identifier (FQCN)
      * @param sourceFile the relative source file path
      * @param methods the just-persisted methods for this class
      * @return the number of parameters persisted
@@ -494,6 +495,7 @@ public class CodeContextService {
             final Path sourceRootPath,
             final Set<String> knownIdentifiers,
             final ProjectGraph graph,
+            final String identifier,
             final String sourceFile,
             final List<SourceMethod> methods) {
 
@@ -523,8 +525,13 @@ public class CodeContextService {
 
                 final List<MethodParameter> params = new ArrayList<>();
                 for (int pos = 0; pos < paramTypes.size(); pos++) {
-                    final String paramClassId =
-                            graph.classId(paramTypes.get(pos));
+                    final String paramType = paramTypes.get(pos);
+                    final String paramClassId = graph.classId(paramType);
+
+                    graph.addMethodParameter(
+                            identifier, method.methodName(),
+                            pos, paramType);
+
                     if (paramClassId != null) {
                         params.add(MethodParameter.create(
                                 method.id(), pos, paramClassId));

@@ -35,6 +35,14 @@ public final class ProjectGraph {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /**
+     * Links a method parameter to its target class in the project.
+     *
+     * @param position the parameter position (0-based) in the method signature
+     * @param targetIdentifier the FQCN of the parameter type
+     */
+    public record MethodParameterLink(int position, String targetIdentifier) {}
+
     /** Maps identifier to source file path. */
     private final Map<String, String> nodes;
 
@@ -48,6 +56,14 @@ public final class ProjectGraph {
     private final Map<String, String> classIdMapping;
 
     /**
+     * Maps classIdentifier to methodName to parameter links.
+     *
+     * <p>Structure: classIdentifier -> methodName -> [MethodParameterLink]</p>
+     */
+    private final Map<String, Map<String, List<MethodParameterLink>>>
+            methodParameters;
+
+    /**
      * Creates an empty project graph.
      */
     public ProjectGraph() {
@@ -55,13 +71,16 @@ public final class ProjectGraph {
         this.edges = new HashMap<>();
         this.entryPoints = new LinkedHashSet<>();
         this.classIdMapping = new HashMap<>();
+        this.methodParameters = new HashMap<>();
     }
 
     private ProjectGraph(
             final Map<String, String> theNodes,
             final Map<String, Set<String>> theEdges,
             final Set<String> theEntryPoints,
-            final Map<String, String> theClassIdMapping) {
+            final Map<String, String> theClassIdMapping,
+            final Map<String, Map<String, List<MethodParameterLink>>>
+                    theMethodParameters) {
         this.nodes = new LinkedHashMap<>(theNodes);
         this.edges = new HashMap<>();
         for (final Map.Entry<String, Set<String>> entry : theEdges.entrySet()) {
@@ -70,6 +89,7 @@ public final class ProjectGraph {
         }
         this.entryPoints = new LinkedHashSet<>(theEntryPoints);
         this.classIdMapping = new HashMap<>(theClassIdMapping);
+        this.methodParameters = deepCopyMethodParameters(theMethodParameters);
     }
 
     /**
@@ -115,6 +135,97 @@ public final class ProjectGraph {
         if (nodes.containsKey(identifier)) {
             entryPoints.add(identifier);
         }
+    }
+
+    /**
+     * Adds a method parameter link to the graph.
+     *
+     * <p>Records that a method in classIdentifier accepts a parameter
+     * of type parameterTypeIdentifier at the given position. Silently
+     * ignored if either class is not a known node in the graph (same
+     * pattern as {@link #addDependency}).</p>
+     *
+     * @param classIdentifier the owning class FQCN
+     * @param methodName the method name
+     * @param position the 0-based parameter position
+     * @param parameterTypeIdentifier the parameter type FQCN
+     */
+    public void addMethodParameter(final String classIdentifier,
+            final String methodName, final int position,
+            final String parameterTypeIdentifier) {
+
+        Preconditions.requireNonBlank(classIdentifier,
+                "Class identifier is required");
+        Preconditions.requireNonBlank(methodName,
+                "Method name is required");
+        Preconditions.requireNonNegative(position,
+                "Position must be non-negative");
+        Preconditions.requireNonBlank(parameterTypeIdentifier,
+                "Parameter type identifier is required");
+
+        if (!nodes.containsKey(classIdentifier)
+                || !nodes.containsKey(parameterTypeIdentifier)) {
+            return;
+        }
+
+        methodParameters
+                .computeIfAbsent(classIdentifier, k -> new HashMap<>())
+                .computeIfAbsent(methodName, k -> new ArrayList<>())
+                .add(new MethodParameterLink(position,
+                        parameterTypeIdentifier));
+    }
+
+    /**
+     * Returns the method parameter links for a given class.
+     *
+     * @param classIdentifier the class FQCN
+     * @return unmodifiable map of methodName to parameter links,
+     *         empty if unknown
+     */
+    public Map<String, List<MethodParameterLink>> methodParameters(
+            final String classIdentifier) {
+
+        final Map<String, List<MethodParameterLink>> perMethod =
+                methodParameters.get(classIdentifier);
+
+        if (perMethod == null) {
+            return Map.of();
+        }
+
+        final Map<String, List<MethodParameterLink>> result =
+                new LinkedHashMap<>();
+        for (final Map.Entry<String, List<MethodParameterLink>> entry
+                : perMethod.entrySet()) {
+            result.put(entry.getKey(),
+                    Collections.unmodifiableList(entry.getValue()));
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    /**
+     * Returns all target identifiers referenced via method parameters
+     * for a given class.
+     *
+     * @param classIdentifier the class FQCN
+     * @return unmodifiable set of target identifiers, empty if none
+     */
+    public Set<String> methodParameterTargets(
+            final String classIdentifier) {
+
+        final Map<String, List<MethodParameterLink>> perMethod =
+                methodParameters.get(classIdentifier);
+
+        if (perMethod == null) {
+            return Set.of();
+        }
+
+        final Set<String> targets = new LinkedHashSet<>();
+        for (final List<MethodParameterLink> links : perMethod.values()) {
+            for (final MethodParameterLink link : links) {
+                targets.add(link.targetIdentifier());
+            }
+        }
+        return Collections.unmodifiableSet(targets);
     }
 
     /**
@@ -299,6 +410,28 @@ public final class ProjectGraph {
         }
         root.set("entryPoints", entryPointsArray);
 
+        final ObjectNode methodParamsObj = MAPPER.createObjectNode();
+        for (final Map.Entry<String, Map<String, List<MethodParameterLink>>>
+                classEntry : methodParameters.entrySet()) {
+
+            final ObjectNode methodsObj = MAPPER.createObjectNode();
+            for (final Map.Entry<String, List<MethodParameterLink>>
+                    methodEntry : classEntry.getValue().entrySet()) {
+
+                final ArrayNode paramsArray = MAPPER.createArrayNode();
+                for (final MethodParameterLink link
+                        : methodEntry.getValue()) {
+                    final ObjectNode paramObj = MAPPER.createObjectNode();
+                    paramObj.put("position", link.position());
+                    paramObj.put("target", link.targetIdentifier());
+                    paramsArray.add(paramObj);
+                }
+                methodsObj.set(methodEntry.getKey(), paramsArray);
+            }
+            methodParamsObj.set(classEntry.getKey(), methodsObj);
+        }
+        root.set("methodParameters", methodParamsObj);
+
         try {
             return MAPPER.writeValueAsString(root);
         } catch (final JsonProcessingException e) {
@@ -360,12 +493,75 @@ public final class ProjectGraph {
                 }
             }
 
-            return new ProjectGraph(nodes, edges, entryPoints, classIds);
+            final Map<String, Map<String, List<MethodParameterLink>>>
+                    methodParams = new HashMap<>();
+            final JsonNode mpNode = root.get("methodParameters");
+
+            if (mpNode != null && mpNode.isObject()) {
+                final var classFields = mpNode.fields();
+                while (classFields.hasNext()) {
+                    final var classEntry = classFields.next();
+                    final String classId = classEntry.getKey();
+                    final Map<String, List<MethodParameterLink>> perMethod =
+                            new HashMap<>();
+
+                    final var methodFields = classEntry.getValue().fields();
+                    while (methodFields.hasNext()) {
+                        final var methodEntry = methodFields.next();
+                        final String methodName = methodEntry.getKey();
+                        final List<MethodParameterLink> links =
+                                new ArrayList<>();
+
+                        for (final JsonNode paramNode
+                                : methodEntry.getValue()) {
+                            links.add(new MethodParameterLink(
+                                    paramNode.get("position").asInt(),
+                                    paramNode.get("target").asText()));
+                        }
+                        perMethod.put(methodName, links);
+                    }
+                    methodParams.put(classId, perMethod);
+                }
+            }
+
+            return new ProjectGraph(nodes, edges, entryPoints, classIds,
+                    methodParams);
 
         } catch (final JsonProcessingException e) {
             throw new RuntimeException(
                     "Failed to deserialize ProjectGraph", e);
         }
+    }
+
+    /**
+     * Deep-copies the nested method parameters structure for defensive
+     * copying in the private constructor.
+     *
+     * @param source the source map to copy
+     * @return a deep copy of the method parameters map
+     */
+    private static Map<String, Map<String, List<MethodParameterLink>>>
+            deepCopyMethodParameters(
+                    final Map<String, Map<String, List<MethodParameterLink>>>
+                            source) {
+
+        final Map<String, Map<String, List<MethodParameterLink>>> copy =
+                new HashMap<>();
+
+        for (final Map.Entry<String, Map<String, List<MethodParameterLink>>>
+                classEntry : source.entrySet()) {
+
+            final Map<String, List<MethodParameterLink>> methodsCopy =
+                    new HashMap<>();
+
+            for (final Map.Entry<String, List<MethodParameterLink>>
+                    methodEntry : classEntry.getValue().entrySet()) {
+                methodsCopy.put(methodEntry.getKey(),
+                        new ArrayList<>(methodEntry.getValue()));
+            }
+            copy.put(classEntry.getKey(), methodsCopy);
+        }
+        return copy;
     }
 
 }

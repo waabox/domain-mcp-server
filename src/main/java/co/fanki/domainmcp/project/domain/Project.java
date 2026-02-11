@@ -21,6 +21,7 @@ public final class Project {
     private ProjectStatus status;
     private Instant lastAnalyzedAt;
     private String lastCommitHash;
+    private String graphData;
     private final Instant createdAt;
     private Instant updatedAt;
 
@@ -87,6 +88,7 @@ public final class Project {
      * @param status the project status
      * @param lastAnalyzedAt when last analyzed
      * @param lastCommitHash the last commit hash analyzed
+     * @param graphData the serialized project graph JSON
      * @param createdAt when created
      * @param updatedAt when last updated
      * @return the reconstituted Project
@@ -100,6 +102,7 @@ public final class Project {
             final ProjectStatus status,
             final Instant lastAnalyzedAt,
             final String lastCommitHash,
+            final String graphData,
             final Instant createdAt,
             final Instant updatedAt) {
 
@@ -109,6 +112,7 @@ public final class Project {
         project.status = status;
         project.lastAnalyzedAt = lastAnalyzedAt;
         project.lastCommitHash = lastCommitHash;
+        project.graphData = graphData;
         project.updatedAt = updatedAt;
         return project;
     }
@@ -148,6 +152,16 @@ public final class Project {
      */
     public void updateDescription(final String theDescription) {
         this.description = theDescription;
+        this.updatedAt = Instant.now();
+    }
+
+    /**
+     * Updates the serialized project dependency graph.
+     *
+     * @param theGraphData the JSON representation of the project graph
+     */
+    public void updateGraphData(final String theGraphData) {
+        this.graphData = theGraphData;
         this.updatedAt = Instant.now();
     }
 
@@ -200,6 +214,10 @@ public final class Project {
 
     public String lastCommitHash() {
         return lastCommitHash;
+    }
+
+    public String graphData() {
+        return graphData;
     }
 
     public Instant createdAt() {

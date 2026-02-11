@@ -47,20 +47,32 @@ and tooling.
 
 ## What this MCP does
 
--   Git cloning & repository indexing
--   Documentation + code analysis
--   LLM-assisted domain extraction
--   API & DB model mapping
--   PostgreSQL-backed catalog
--   Fast semantic queries via MCP
+-   Git cloning via JGit (shallow clone, branch selection)
+-   Auto-detection of project language (Java, Node.js/TypeScript)
+-   Import-based dependency graph building (no LLM)
+-   Per-class/module Claude API analysis (language-aware prompts)
+-   PostgreSQL-backed catalog of classes, methods, and endpoints
+-   Stack trace correlation with graph-enhanced neighbor resolution
+-   MCP stdio + REST dual transport
+
+## Supported Languages
+
+| Language | Parser | Source Root | Entry Points |
+|----------|--------|------------|--------------|
+| Java | `JavaSourceParser` | `src/main/java` | `@RestController`, `@Controller`, `@KafkaListener`, `@Scheduled`, `@EventListener`, `@SpringBootApplication` |
+| Node.js / TypeScript | `NodeJsSourceParser` | `src` | NestJS `@Controller`, Express routes (`app.get`, `router.post`, etc.), well-known files (`main.ts`, `index.ts`, `app.ts`, `server.ts`) |
+
+Language is auto-detected from project marker files: `pom.xml` / `build.gradle` for Java, `package.json` for Node.js/TypeScript.
 
 ## Architecture
 
-Java + Spring (MCP-enabled)\
-Git SSH clone + caching\
-LLM enrichment (Claude-compatible)\
-PostgreSQL persistence (JDBI)\
-Minimal HTTP healthcheck (no Actuator)
+Java 21 + Spring Boot 3.3 (MCP-enabled)\
+JGit for repository cloning\
+Per-language source parsers (Java, Node.js/TypeScript)\
+Claude API (Sonnet 4.5) for per-class business analysis (language-aware prompts)\
+Import-based dependency graph (no LLM needed for graph)\
+PostgreSQL persistence (JDBI3)\
+MCP stdio transport for Claude Code integration
 
 ## MCP Tools
 
@@ -206,10 +218,11 @@ This gives you **root cause analysis** that combines runtime observability (Data
 
 ## Data model
 
-Stored in PostgreSQL: - services
-- domain_concepts
-- apis
-- models/entities
+Stored in PostgreSQL (`domain_mcp` schema):
+
+- `projects` — git repositories with status, graph data (JSON), and analysis metadata
+- `source_classes` — extracted classes with FQCN, type, description, source file
+- `source_methods` — extracted methods with business logic, dependencies, exceptions, HTTP endpoints
 
 ## Healthcheck
 
@@ -217,7 +230,7 @@ Minimal `"ok"` / `"up"` HTTP endpoint for probes.
 
 ## Roadmap
 
-Incremental indexing, improved cross-service linking, better LLM patterns.
+Additional language parsers (Python, Go), incremental indexing, improved cross-service linking, better LLM patterns.
 
 ## Contributing
 

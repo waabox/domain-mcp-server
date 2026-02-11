@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with this repository.
 
 ## Project Overview
 
-Domain MCP Server - Analyzes git repositories using Claude Code in Docker containers and extracts business information (classes, methods, endpoints) for Datadog stack trace correlation.
+Domain MCP Server - Analyzes git repositories using JGit and Claude API to extract business information (classes, methods, endpoints) for Datadog stack trace correlation.
 
 ## Technology Stack
 
@@ -12,7 +12,8 @@ Domain MCP Server - Analyzes git repositories using Claude Code in Docker contai
 - **Framework**: Spring Boot 3.3.6
 - **Database**: PostgreSQL with JDBI3
 - **Migrations**: Flyway
-- **Containers**: TestContainers for running Claude Code CLI
+- **Git**: JGit for repository cloning
+- **AI**: Claude API (direct HTTP) for code analysis
 
 ## Development Commands
 
@@ -34,12 +35,9 @@ mvn package -DskipTests
 
 ```
 src/main/java/co/fanki/domainmcp/
-├── analysis/          # Code context and class/method extraction
-│   ├── domain/        # SourceClass, SourceMethod, repositories
+├── analysis/          # Code analysis and context extraction
+│   ├── domain/        # SourceClass, SourceMethod, ClaudeApiClient, SourceParser
 │   └── application/   # CodeContextService, controllers
-├── container/         # Docker container management
-│   ├── domain/        # AnalysisContainer, ContainerImage
-│   └── application/   # ContainerAnalysisService
 ├── project/           # Project management
 │   ├── domain/        # Project entity, RepositoryUrl
 │   └── application/   # ProjectController

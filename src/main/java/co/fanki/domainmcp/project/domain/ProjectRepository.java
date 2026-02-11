@@ -36,6 +36,10 @@ public class ProjectRepository {
     public static final String FIND_BY_STATUS =
             "SELECT * FROM projects WHERE status = :status";
 
+    /** Find projects with non-null graph data. Uses: seq scan. */
+    public static final String FIND_ALL_WITH_GRAPH =
+            "SELECT * FROM projects WHERE graph_data IS NOT NULL";
+
     /** Check if project exists by repository URL. Uses: UNIQUE constraint on repository_url. */
     public static final String EXISTS_BY_REPOSITORY_URL =
             "SELECT COUNT(*) FROM projects WHERE repository_url = :url";
@@ -61,10 +65,12 @@ public class ProjectRepository {
         jdbi.useHandle(handle -> handle.createUpdate("""
                 INSERT INTO projects (
                     id, name, repository_url, default_branch, description,
-                    status, last_analyzed_at, last_commit_hash, created_at, updated_at
+                    status, last_analyzed_at, last_commit_hash, graph_data,
+                    created_at, updated_at
                 ) VALUES (
                     :id, :name, :repositoryUrl, :defaultBranch, :description,
-                    :status, :lastAnalyzedAt, :lastCommitHash, :createdAt, :updatedAt
+                    :status, :lastAnalyzedAt, :lastCommitHash,
+                    CAST(:graphData AS JSONB), :createdAt, :updatedAt
                 )
                 """)
                 .bind("id", project.id())
@@ -75,6 +81,7 @@ public class ProjectRepository {
                 .bind("status", project.status().name())
                 .bind("lastAnalyzedAt", toTimestamp(project.lastAnalyzedAt()))
                 .bind("lastCommitHash", project.lastCommitHash())
+                .bind("graphData", project.graphData())
                 .bind("createdAt", toTimestamp(project.createdAt()))
                 .bind("updatedAt", toTimestamp(project.updatedAt()))
                 .execute());
@@ -94,6 +101,7 @@ public class ProjectRepository {
                     status = :status,
                     last_analyzed_at = :lastAnalyzedAt,
                     last_commit_hash = :lastCommitHash,
+                    graph_data = CAST(:graphData AS JSONB),
                     updated_at = :updatedAt
                 WHERE id = :id
                 """)
@@ -104,6 +112,7 @@ public class ProjectRepository {
                 .bind("status", project.status().name())
                 .bind("lastAnalyzedAt", toTimestamp(project.lastAnalyzedAt()))
                 .bind("lastCommitHash", project.lastCommitHash())
+                .bind("graphData", project.graphData())
                 .bind("updatedAt", toTimestamp(project.updatedAt()))
                 .execute());
     }
@@ -163,6 +172,18 @@ public class ProjectRepository {
     }
 
     /**
+     * Finds all projects with non-null graph data.
+     *
+     * @return list of projects that have graph data
+     */
+    public List<Project> findAllWithGraph() {
+        return jdbi.withHandle(handle -> handle
+                .createQuery(FIND_ALL_WITH_GRAPH)
+                .map(new ProjectRowMapper())
+                .list());
+    }
+
+    /**
      * Deletes a project.
      *
      * @param id the project ID
@@ -211,12 +232,14 @@ public class ProjectRepository {
                     ? lastAnalyzedTs.toInstant() : null;
 
             final String lastCommitHash = rs.getString("last_commit_hash");
+            final String graphData = rs.getString("graph_data");
             final Instant createdAt = rs.getTimestamp("created_at").toInstant();
             final Instant updatedAt = rs.getTimestamp("updated_at").toInstant();
 
             return Project.reconstitute(
                     id, name, repositoryUrl, defaultBranch, description,
-                    status, lastAnalyzedAt, lastCommitHash, createdAt, updatedAt);
+                    status, lastAnalyzedAt, lastCommitHash, graphData,
+                    createdAt, updatedAt);
         }
     }
 

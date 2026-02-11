@@ -206,16 +206,19 @@ public class McpStdioServerConfiguration {
                 .capabilities(ServerCapabilities.builder()
                         .tools(true)
                         .build())
+                .tools(List.of(
+                        listProjectsTool(codeContextService, objectMapper),
+                        getClassContextTool(codeContextService, objectMapper),
+                        getMethodContextTool(codeContextService, objectMapper),
+                        getStackTraceContextTool(codeContextService,
+                                objectMapper),
+                        getClassDependenciesTool(codeContextService,
+                                objectMapper),
+                        getProjectOverviewTool(codeContextService,
+                                objectMapper),
+                        getServiceApiTool(codeContextService, objectMapper),
+                        searchProjectTool(codeContextService, objectMapper)))
                 .build();
-
-        server.addTool(listProjectsTool(codeContextService, objectMapper));
-        server.addTool(getClassContextTool(codeContextService, objectMapper));
-        server.addTool(getMethodContextTool(codeContextService, objectMapper));
-        server.addTool(getStackTraceContextTool(codeContextService, objectMapper));
-        server.addTool(getClassDependenciesTool(codeContextService, objectMapper));
-        server.addTool(getProjectOverviewTool(codeContextService, objectMapper));
-        server.addTool(getServiceApiTool(codeContextService, objectMapper));
-        server.addTool(searchProjectTool(codeContextService, objectMapper));
 
         LOG.info("MCP stdio server initialized with 8 tools");
 

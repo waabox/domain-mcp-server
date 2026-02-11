@@ -86,12 +86,16 @@ public class CodeContextService {
     /**
      * Creates a new CodeContextService.
      *
+     * <p>When the Claude API key is not provided (blank or null), the
+     * enrichment phases (Phase 2/3) are skipped during analysis. Context
+     * query operations work without the API key.</p>
+     *
      * @param theProjectRepository the project repository
      * @param theSourceClassRepository the source class repository
      * @param theSourceMethodRepository the source method repository
      * @param theMethodParameterRepository the method parameter repository
      * @param theGraphCache the project graph cache
-     * @param theClaudeApiKey the Claude API key
+     * @param theClaudeApiKey the Claude API key (optional)
      * @param theCloneBasePath the base path for cloning repositories
      */
     public CodeContextService(
@@ -100,7 +104,7 @@ public class CodeContextService {
             final SourceMethodRepository theSourceMethodRepository,
             final MethodParameterRepository theMethodParameterRepository,
             final GraphService theGraphCache,
-            @Value("${claude.api-key}") final String theClaudeApiKey,
+            @Value("${claude.api-key:}") final String theClaudeApiKey,
             @Value("${git.clone-base-path:/tmp/domain-mcp-repos}")
             final String theCloneBasePath) {
         this.projectRepository = theProjectRepository;
@@ -108,8 +112,14 @@ public class CodeContextService {
         this.sourceMethodRepository = theSourceMethodRepository;
         this.methodParameterRepository = theMethodParameterRepository;
         this.graphCache = theGraphCache;
-        this.claudeApiClient = new ClaudeApiClient(
-                theClaudeApiKey, MAX_CONCURRENT_CLAUDE_REQUESTS);
+        if (theClaudeApiKey != null && !theClaudeApiKey.isBlank()) {
+            this.claudeApiClient = new ClaudeApiClient(
+                    theClaudeApiKey, MAX_CONCURRENT_CLAUDE_REQUESTS);
+        } else {
+            LOG.warn("Claude API key not configured. Enrichment phases"
+                    + " will be skipped during analysis.");
+            this.claudeApiClient = null;
+        }
         this.cloneBasePath = theCloneBasePath;
     }
 
@@ -134,6 +144,15 @@ public class CodeContextService {
      */
     public AnalysisResult analyzeProject(final String repositoryUrl,
             final String branch, final boolean fixMissed) {
+
+        if (claudeApiClient == null) {
+            LOG.error("Cannot run analysis in read-only mode. "
+                    + "ANTHROPIC_API_KEY is not configured.");
+            throw new DomainException(
+                    "Cannot run analysis in read-only mode."
+                            + " ANTHROPIC_API_KEY is not configured.",
+                    "READ_ONLY_MODE");
+        }
 
         LOG.info("Starting project analysis for: {}", repositoryUrl);
 

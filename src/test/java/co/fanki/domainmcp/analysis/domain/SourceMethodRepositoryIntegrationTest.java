@@ -80,7 +80,8 @@ class SourceMethodRepositoryIntegrationTest {
                 "co.fanki.user.UserService",
                 ClassType.SERVICE,
                 "User service",
-                "src/main/java/co/fanki/user/UserService.java");
+                "src/main/java/co/fanki/user/UserService.java",
+                "abc123");
         classRepository.save(testClass);
     }
 
@@ -102,7 +103,6 @@ class SourceMethodRepositoryIntegrationTest {
                 "createUser",
                 "Creates a new user",
                 List.of("Validates input", "Saves to DB", "Publishes event"),
-                List.of("UserRepository", "EventPublisher"),
                 List.of("ValidationException"),
                 "POST",
                 "/api/users",
@@ -114,7 +114,6 @@ class SourceMethodRepositoryIntegrationTest {
         assertTrue(found.isPresent());
         assertEquals(3, found.get().businessLogic().size());
         assertEquals("Validates input", found.get().businessLogic().get(0));
-        assertEquals(2, found.get().dependencies().size());
         assertEquals(1, found.get().exceptions().size());
     }
 
@@ -227,7 +226,7 @@ class SourceMethodRepositoryIntegrationTest {
                 testClass.id(),
                 methodName,
                 "Test method description",
-                null, null, null,
+                null, null,
                 null, null, null);
     }
 
@@ -237,7 +236,7 @@ class SourceMethodRepositoryIntegrationTest {
                 testClass.id(),
                 methodName,
                 "HTTP endpoint",
-                null, null, null,
+                null, null,
                 httpMethod, httpPath, null);
     }
 

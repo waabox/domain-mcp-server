@@ -229,6 +229,65 @@ public final class ProjectGraph {
     }
 
     /**
+     * Returns the outgoing dependencies for a given identifier.
+     *
+     * <p>These are the classes that this identifier imports or depends on
+     * (outgoing edges in the graph).</p>
+     *
+     * @param identifier the class identifier to query
+     * @return unmodifiable set of dependency identifiers, empty if not found
+     */
+    public Set<String> dependencies(final String identifier) {
+        if (identifier == null || !nodes.containsKey(identifier)) {
+            return Set.of();
+        }
+        return Collections.unmodifiableSet(
+                edges.getOrDefault(identifier, Set.of()));
+    }
+
+    /**
+     * Returns the incoming dependents for a given identifier.
+     *
+     * <p>These are the classes that import or depend on this identifier
+     * (reverse edges in the graph).</p>
+     *
+     * @param identifier the class identifier to query
+     * @return unmodifiable set of dependent identifiers, empty if not found
+     */
+    public Set<String> dependents(final String identifier) {
+        if (identifier == null || !nodes.containsKey(identifier)) {
+            return Set.of();
+        }
+
+        final Set<String> result = new LinkedHashSet<>();
+        for (final Map.Entry<String, Set<String>> entry : edges.entrySet()) {
+            if (entry.getValue().contains(identifier)) {
+                result.add(entry.getKey());
+            }
+        }
+        return Collections.unmodifiableSet(result);
+    }
+
+    /**
+     * Checks if the given identifier is marked as an entry point.
+     *
+     * @param identifier the identifier to check
+     * @return true if the identifier is an entry point
+     */
+    public boolean isEntryPoint(final String identifier) {
+        return identifier != null && entryPoints.contains(identifier);
+    }
+
+    /**
+     * Returns all entry point identifiers.
+     *
+     * @return unmodifiable set of entry point identifiers
+     */
+    public Set<String> entryPoints() {
+        return Collections.unmodifiableSet(entryPoints);
+    }
+
+    /**
      * Resolves the set of directly connected classes for a given identifier.
      *
      * <p>Returns both direct dependencies (outgoing edges) and reverse

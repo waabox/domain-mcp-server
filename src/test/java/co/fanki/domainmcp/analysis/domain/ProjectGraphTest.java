@@ -212,6 +212,163 @@ class ProjectGraphTest {
         assertEquals(1, graph.entryPointCount());
     }
 
+    // -- dependencies ------------------------------------------------------
+
+    @Test
+    void whenQueryingDependencies_givenNodeWithOutgoing_shouldReturnDirectDeps() {
+        final ProjectGraph graph = buildSimpleChainGraph();
+
+        final Set<String> deps = graph.dependencies("co.fanki.Controller");
+
+        assertEquals(Set.of("co.fanki.Service"), deps);
+    }
+
+    @Test
+    void whenQueryingDependencies_givenLeafNode_shouldReturnEmptySet() {
+        final ProjectGraph graph = buildSimpleChainGraph();
+
+        final Set<String> deps = graph.dependencies("co.fanki.Repository");
+
+        assertTrue(deps.isEmpty());
+    }
+
+    @Test
+    void whenQueryingDependencies_givenUnknownNode_shouldReturnEmptySet() {
+        final ProjectGraph graph = buildSimpleChainGraph();
+
+        assertTrue(graph.dependencies("co.fanki.Unknown").isEmpty());
+    }
+
+    @Test
+    void whenQueryingDependencies_givenNull_shouldReturnEmptySet() {
+        final ProjectGraph graph = buildSimpleChainGraph();
+
+        assertTrue(graph.dependencies(null).isEmpty());
+    }
+
+    @Test
+    void whenQueryingDependencies_shouldBeUnmodifiable() {
+        final ProjectGraph graph = buildSimpleChainGraph();
+
+        final Set<String> deps = graph.dependencies("co.fanki.Controller");
+
+        assertThrows(UnsupportedOperationException.class,
+                () -> deps.add("co.fanki.Hack"));
+    }
+
+    // -- dependents --------------------------------------------------------
+
+    @Test
+    void whenQueryingDependents_givenNodeWithIncoming_shouldReturnReverseDeps() {
+        final ProjectGraph graph = buildSimpleChainGraph();
+
+        final Set<String> deps = graph.dependents("co.fanki.Service");
+
+        assertEquals(Set.of("co.fanki.Controller"), deps);
+    }
+
+    @Test
+    void whenQueryingDependents_givenRootNode_shouldReturnEmptySet() {
+        final ProjectGraph graph = buildSimpleChainGraph();
+
+        final Set<String> deps = graph.dependents("co.fanki.Controller");
+
+        assertTrue(deps.isEmpty());
+    }
+
+    @Test
+    void whenQueryingDependents_givenLeafNode_shouldReturnIncoming() {
+        final ProjectGraph graph = buildSimpleChainGraph();
+
+        final Set<String> deps = graph.dependents("co.fanki.Repository");
+
+        assertEquals(Set.of("co.fanki.Service"), deps);
+    }
+
+    @Test
+    void whenQueryingDependents_givenUnknownNode_shouldReturnEmptySet() {
+        final ProjectGraph graph = buildSimpleChainGraph();
+
+        assertTrue(graph.dependents("co.fanki.Unknown").isEmpty());
+    }
+
+    @Test
+    void whenQueryingDependents_givenNull_shouldReturnEmptySet() {
+        final ProjectGraph graph = buildSimpleChainGraph();
+
+        assertTrue(graph.dependents(null).isEmpty());
+    }
+
+    @Test
+    void whenQueryingDependents_shouldBeUnmodifiable() {
+        final ProjectGraph graph = buildSimpleChainGraph();
+
+        final Set<String> deps = graph.dependents("co.fanki.Service");
+
+        assertThrows(UnsupportedOperationException.class,
+                () -> deps.add("co.fanki.Hack"));
+    }
+
+    // -- isEntryPoint / entryPoints() --------------------------------------
+
+    @Test
+    void whenCheckingIsEntryPoint_givenMarkedNode_shouldReturnTrue() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.Controller", "src/Controller.java");
+        graph.markAsEntryPoint("co.fanki.Controller");
+
+        assertTrue(graph.isEntryPoint("co.fanki.Controller"));
+    }
+
+    @Test
+    void whenCheckingIsEntryPoint_givenUnmarkedNode_shouldReturnFalse() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.Service", "src/Service.java");
+
+        assertFalse(graph.isEntryPoint("co.fanki.Service"));
+    }
+
+    @Test
+    void whenCheckingIsEntryPoint_givenNull_shouldReturnFalse() {
+        final ProjectGraph graph = new ProjectGraph();
+
+        assertFalse(graph.isEntryPoint(null));
+    }
+
+    @Test
+    void whenGettingEntryPoints_givenMarkedNodes_shouldReturnAll() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.A", "src/A.java");
+        graph.addNode("co.fanki.B", "src/B.java");
+        graph.addNode("co.fanki.C", "src/C.java");
+        graph.markAsEntryPoint("co.fanki.A");
+        graph.markAsEntryPoint("co.fanki.B");
+
+        final Set<String> eps = graph.entryPoints();
+
+        assertEquals(Set.of("co.fanki.A", "co.fanki.B"), eps);
+    }
+
+    @Test
+    void whenGettingEntryPoints_givenNoEntryPoints_shouldReturnEmptySet() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.A", "src/A.java");
+
+        assertTrue(graph.entryPoints().isEmpty());
+    }
+
+    @Test
+    void whenGettingEntryPoints_shouldBeUnmodifiable() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.A", "src/A.java");
+        graph.markAsEntryPoint("co.fanki.A");
+
+        final Set<String> eps = graph.entryPoints();
+
+        assertThrows(UnsupportedOperationException.class,
+                () -> eps.add("co.fanki.Hack"));
+    }
+
     // -- resolve -----------------------------------------------------------
 
     @Test

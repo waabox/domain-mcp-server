@@ -90,7 +90,7 @@ public class JavaSourceParser extends SourceParser {
 
     /** Matches a method declaration line to extract name + throws clause. */
     private static final Pattern METHOD_LINE_PATTERN = Pattern.compile(
-            "(?:public|protected|private)\\s+"
+            "(?:public|protected|private)?\\s*"
                     + "(?:static\\s+)?(?:final\\s+)?(?:synchronized\\s+)?"
                     + "(?:<[^>]+>\\s+)?"
                     + "\\S+\\s+(\\w+)\\s*\\(");

@@ -101,7 +101,6 @@ class ClaudeApiClientTest {
                 new MethodAnalysisResult(
                         "findUser", "Finds a user by ID",
                         List.of("Lookup user in database"),
-                        List.of("UserRepository"),
                         List.of("UserNotFoundException"),
                         "GET", "/api/users/{id}", 42));
 
@@ -175,7 +174,6 @@ class ClaudeApiClientTest {
                 "createOrder",
                 "Creates a new order for a customer",
                 List.of("Validate cart", "Calculate total", "Persist order"),
-                List.of("CartService", "PricingEngine", "OrderRepository"),
                 List.of("EmptyCartException", "InsufficientStockException"),
                 "POST",
                 "/api/orders",
@@ -186,8 +184,6 @@ class ClaudeApiClientTest {
                 method.description());
         assertEquals(3, method.businessLogic().size());
         assertEquals("Validate cart", method.businessLogic().get(0));
-        assertEquals(3, method.dependencies().size());
-        assertEquals("CartService", method.dependencies().get(0));
         assertEquals(2, method.exceptions().size());
         assertEquals("POST", method.httpMethod());
         assertEquals("/api/orders", method.httpPath());
@@ -201,7 +197,6 @@ class ClaudeApiClientTest {
                 "Internal processing step",
                 List.of(),
                 List.of(),
-                List.of(),
                 null,
                 null,
                 null);
@@ -211,7 +206,6 @@ class ClaudeApiClientTest {
         assertNull(method.httpPath());
         assertNull(method.lineNumber());
         assertTrue(method.businessLogic().isEmpty());
-        assertTrue(method.dependencies().isEmpty());
         assertTrue(method.exceptions().isEmpty());
     }
 
@@ -221,7 +215,6 @@ class ClaudeApiClientTest {
                 "deleteUser",
                 "Deletes a user account",
                 List.of("Mark user as deleted"),
-                List.of("UserRepository"),
                 List.of(),
                 "DELETE",
                 "/api/users/{id}",
@@ -237,19 +230,17 @@ class ClaudeApiClientTest {
     void whenCreatingSuccessResult_givenMultipleMethods_shouldRetainAll() {
         final MethodAnalysisResult getMethod = new MethodAnalysisResult(
                 "getUser", "Retrieves user by ID",
-                List.of("Fetch user"), List.of("UserRepository"),
+                List.of("Fetch user"),
                 List.of("UserNotFoundException"), "GET", "/api/users/{id}", 30);
 
         final MethodAnalysisResult postMethod = new MethodAnalysisResult(
                 "createUser", "Creates a new user",
                 List.of("Validate input", "Persist user"),
-                List.of("UserRepository", "EmailService"),
                 List.of("DuplicateEmailException"), "POST", "/api/users", 55);
 
         final MethodAnalysisResult deleteMethod = new MethodAnalysisResult(
                 "deleteUser", "Soft-deletes a user",
                 List.of("Mark as inactive"),
-                List.of("UserRepository"),
                 List.of(), "DELETE", "/api/users/{id}", 80);
 
         final List<MethodAnalysisResult> methods = List.of(
@@ -274,12 +265,12 @@ class ClaudeApiClientTest {
     void whenComparingMethodResults_givenSameData_shouldBeEqual() {
         final MethodAnalysisResult first = new MethodAnalysisResult(
                 "findAll", "Lists all items",
-                List.of("Query database"), List.of("ItemRepository"),
+                List.of("Query database"),
                 List.of(), "GET", "/api/items", 10);
 
         final MethodAnalysisResult second = new MethodAnalysisResult(
                 "findAll", "Lists all items",
-                List.of("Query database"), List.of("ItemRepository"),
+                List.of("Query database"),
                 List.of(), "GET", "/api/items", 10);
 
         assertEquals(first, second);

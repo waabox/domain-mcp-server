@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -68,8 +69,10 @@ public class AnalyzeProjectController {
         LOG.info("Received analyze request for: {}", request.repositoryUrl());
 
         try {
+            final boolean fixMissed = request.fixMissed() == null
+                    || request.fixMissed();
             final AnalysisResult result = codeContextService.analyzeProject(
-                    request.repositoryUrl(), request.branch());
+                    request.repositoryUrl(), request.branch(), fixMissed);
 
             return ResponseEntity.ok(new AnalyzeResponse(
                     result.success(),
@@ -92,11 +95,62 @@ public class AnalyzeProjectController {
     }
 
     /**
+     * Rebuilds the project graph without re-running Claude enrichment.
+     *
+     * <p>Re-clones the repository, re-parses source code with the current
+     * parser, and rebuilds the structural graph. Preserves all existing
+     * enrichment data (descriptions, business logic).</p>
+     *
+     * @param projectId the project ID to rebuild the graph for
+     * @return the rebuild result
+     */
+    @Operation(
+            summary = "Rebuild project graph",
+            description = "Re-clones and re-parses the repository to rebuild the structural graph " +
+                    "without re-running Claude enrichment. Useful after parser improvements."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Graph rebuilt",
+                    content = @Content(schema = @Schema(
+                            implementation = RebuildGraphResponse.class))),
+            @ApiResponse(responseCode = "500", description = "Rebuild failed")
+    })
+    @PostMapping("/{id}/rebuild-graph")
+    public ResponseEntity<RebuildGraphResponse> rebuildGraph(
+            @PathVariable("id") final String projectId) {
+
+        LOG.info("Received rebuild-graph request for project: {}", projectId);
+
+        try {
+            codeContextService.rebuildGraph(projectId);
+            return ResponseEntity.ok(new RebuildGraphResponse(
+                    true, projectId, "Graph rebuilt successfully"));
+        } catch (final DomainException e) {
+            LOG.error("Rebuild-graph failed: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body(new RebuildGraphResponse(
+                            false, projectId, e.getMessage()));
+        } catch (final Exception e) {
+            LOG.error("Unexpected error during rebuild-graph", e);
+            return ResponseEntity.internalServerError()
+                    .body(new RebuildGraphResponse(
+                            false, projectId,
+                            "Internal error: " + e.getMessage()));
+        }
+    }
+
+    /**
      * Request for project analysis.
+     *
+     * @param repositoryUrl the git repository URL
+     * @param branch the branch to analyze (optional, defaults to main)
+     * @param fixMissed whether to run Phase 3 recovery for unenriched
+     *     classes (optional, defaults to true)
      */
     public record AnalyzeRequest(
             String repositoryUrl,
-            String branch
+            String branch,
+            Boolean fixMissed
     ) {}
 
     /**
@@ -107,6 +161,19 @@ public class AnalyzeProjectController {
             String projectId,
             int classesAnalyzed,
             int endpointsFound,
+            String message
+    ) {}
+
+    /**
+     * Response from graph rebuild.
+     *
+     * @param success whether the rebuild succeeded
+     * @param projectId the project ID
+     * @param message a human-readable result message
+     */
+    public record RebuildGraphResponse(
+            boolean success,
+            String projectId,
             String message
     ) {}
 

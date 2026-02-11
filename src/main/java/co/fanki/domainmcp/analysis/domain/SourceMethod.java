@@ -12,8 +12,7 @@ import java.util.UUID;
  * Represents a method extracted from a source class during analysis.
  *
  * <p>Contains detailed information about the method including its
- * business logic, dependencies, exceptions, and HTTP endpoint mapping
- * if applicable.</p>
+ * business logic, exceptions, and HTTP endpoint mapping if applicable.</p>
  *
  * @author waabox(emiliano[at]fanki[dot]co)
  */
@@ -24,7 +23,6 @@ public final class SourceMethod {
     private final String methodName;
     private final String description;
     private final List<String> businessLogic;
-    private final List<String> dependencies;
     private final List<String> exceptions;
     private final String httpMethod;
     private final String httpPath;
@@ -37,7 +35,6 @@ public final class SourceMethod {
             final String theMethodName,
             final String theDescription,
             final List<String> theBusinessLogic,
-            final List<String> theDependencies,
             final List<String> theExceptions,
             final String theHttpMethod,
             final String theHttpPath,
@@ -51,9 +48,6 @@ public final class SourceMethod {
         this.description = theDescription;
         this.businessLogic = theBusinessLogic != null
                 ? Collections.unmodifiableList(new ArrayList<>(theBusinessLogic))
-                : Collections.emptyList();
-        this.dependencies = theDependencies != null
-                ? Collections.unmodifiableList(new ArrayList<>(theDependencies))
                 : Collections.emptyList();
         this.exceptions = theExceptions != null
                 ? Collections.unmodifiableList(new ArrayList<>(theExceptions))
@@ -71,7 +65,6 @@ public final class SourceMethod {
      * @param methodName the method name
      * @param description a description of what this method does
      * @param businessLogic list of business logic steps
-     * @param dependencies list of class dependencies
      * @param exceptions list of exceptions this method may throw
      * @param httpMethod the HTTP method if this is a REST handler
      * @param httpPath the HTTP path if this is a REST handler
@@ -83,7 +76,6 @@ public final class SourceMethod {
             final String methodName,
             final String description,
             final List<String> businessLogic,
-            final List<String> dependencies,
             final List<String> exceptions,
             final String httpMethod,
             final String httpPath,
@@ -94,7 +86,6 @@ public final class SourceMethod {
                 methodName,
                 description,
                 businessLogic,
-                dependencies,
                 exceptions,
                 httpMethod,
                 httpPath,
@@ -110,7 +101,6 @@ public final class SourceMethod {
      * @param methodName the method name
      * @param description the description
      * @param businessLogic the business logic steps
-     * @param dependencies the dependencies
      * @param exceptions the exceptions
      * @param httpMethod the HTTP method
      * @param httpPath the HTTP path
@@ -124,7 +114,6 @@ public final class SourceMethod {
             final String methodName,
             final String description,
             final List<String> businessLogic,
-            final List<String> dependencies,
             final List<String> exceptions,
             final String httpMethod,
             final String httpPath,
@@ -132,7 +121,7 @@ public final class SourceMethod {
             final Instant createdAt) {
         return new SourceMethod(
                 id, classId, methodName, description, businessLogic,
-                dependencies, exceptions, httpMethod, httpPath,
+                exceptions, httpMethod, httpPath,
                 lineNumber, createdAt);
     }
 
@@ -175,10 +164,6 @@ public final class SourceMethod {
 
     public List<String> businessLogic() {
         return businessLogic;
-    }
-
-    public List<String> dependencies() {
-        return dependencies;
     }
 
     public List<String> exceptions() {

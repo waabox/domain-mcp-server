@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+
 /**
  * Unit tests for SourceMethod entity.
  *
@@ -24,7 +25,6 @@ class SourceMethodTest {
     void whenCreatingMethod_givenValidData_shouldCreateWithCorrectValues() {
         final String classId = UUID.randomUUID().toString();
         final List<String> businessLogic = List.of("Validates input", "Saves to DB");
-        final List<String> dependencies = List.of("UserRepository");
         final List<String> exceptions = List.of("ValidationException");
 
         final SourceMethod method = SourceMethod.create(
@@ -32,7 +32,6 @@ class SourceMethodTest {
                 "createUser",
                 "Creates a new user",
                 businessLogic,
-                dependencies,
                 exceptions,
                 "POST",
                 "/api/users",
@@ -43,7 +42,6 @@ class SourceMethodTest {
         assertEquals("createUser", method.methodName());
         assertEquals("Creates a new user", method.description());
         assertEquals(businessLogic, method.businessLogic());
-        assertEquals(dependencies, method.dependencies());
         assertEquals(exceptions, method.exceptions());
         assertEquals("POST", method.httpMethod());
         assertEquals("/api/users", method.httpPath());
@@ -54,7 +52,7 @@ class SourceMethodTest {
     @Test
     void whenCreatingMethod_givenNullClassId_shouldThrowException() {
         assertThrows(IllegalArgumentException.class, () ->
-                SourceMethod.create(null, "test", null, null, null, null,
+                SourceMethod.create(null, "test", null, null, null,
                         null, null, null));
     }
 
@@ -63,7 +61,7 @@ class SourceMethodTest {
         final String classId = UUID.randomUUID().toString();
 
         assertThrows(IllegalArgumentException.class, () ->
-                SourceMethod.create(classId, "  ", null, null, null, null,
+                SourceMethod.create(classId, "  ", null, null, null,
                         null, null, null));
     }
 
@@ -72,10 +70,9 @@ class SourceMethodTest {
         final String classId = UUID.randomUUID().toString();
 
         final SourceMethod method = SourceMethod.create(
-                classId, "test", null, null, null, null, null, null, null);
+                classId, "test", null, null, null, null, null, null);
 
         assertTrue(method.businessLogic().isEmpty());
-        assertTrue(method.dependencies().isEmpty());
         assertTrue(method.exceptions().isEmpty());
     }
 
@@ -127,7 +124,6 @@ class SourceMethodTest {
         final String classId = UUID.randomUUID().toString();
         final Instant createdAt = Instant.now().minusSeconds(3600);
         final List<String> businessLogic = List.of("Step 1", "Step 2");
-        final List<String> dependencies = List.of("Dep1");
         final List<String> exceptions = List.of("Ex1");
 
         final SourceMethod method = SourceMethod.reconstitute(
@@ -135,7 +131,6 @@ class SourceMethodTest {
                 "testMethod",
                 "Test description",
                 businessLogic,
-                dependencies,
                 exceptions,
                 "PUT",
                 "/api/test",
@@ -147,7 +142,6 @@ class SourceMethodTest {
         assertEquals("testMethod", method.methodName());
         assertEquals("Test description", method.description());
         assertEquals(businessLogic, method.businessLogic());
-        assertEquals(dependencies, method.dependencies());
         assertEquals(exceptions, method.exceptions());
         assertEquals("PUT", method.httpMethod());
         assertEquals("/api/test", method.httpPath());
@@ -163,7 +157,7 @@ class SourceMethodTest {
 
         final SourceMethod method = SourceMethod.create(
                 classId, "test", null, originalBusinessLogic,
-                null, null, null, null, null);
+                null, null, null, null);
 
         originalBusinessLogic.add("Step 2");
 
@@ -179,7 +173,7 @@ class SourceMethodTest {
                 UUID.randomUUID().toString(),
                 "testMethod",
                 "Test description",
-                null, null, null,
+                null, null,
                 httpMethod,
                 httpPath,
                 null);

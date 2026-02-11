@@ -28,6 +28,10 @@ public class ProjectRepository {
     public static final String FIND_BY_REPOSITORY_URL =
             "SELECT * FROM projects WHERE repository_url = :url";
 
+    /** Find project by name. Uses: seq scan (names are unique by convention). */
+    public static final String FIND_BY_NAME =
+            "SELECT * FROM projects WHERE name = :name";
+
     /** Find all projects. Uses: seq scan (expected for small table). */
     public static final String FIND_ALL =
             "SELECT * FROM projects ORDER BY created_at DESC";
@@ -127,6 +131,20 @@ public class ProjectRepository {
         return jdbi.withHandle(handle -> handle
                 .createQuery(FIND_BY_ID)
                 .bind("id", id)
+                .map(new ProjectRowMapper())
+                .findOne());
+    }
+
+    /**
+     * Finds a project by its name.
+     *
+     * @param name the project name
+     * @return the project if found
+     */
+    public Optional<Project> findByName(final String name) {
+        return jdbi.withHandle(handle -> handle
+                .createQuery(FIND_BY_NAME)
+                .bind("name", name)
                 .map(new ProjectRowMapper())
                 .findOne());
     }

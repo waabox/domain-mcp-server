@@ -178,7 +178,8 @@ class SourceClassRepositoryIntegrationTest {
                 fullClassName,
                 ClassType.SERVICE,
                 "Test class description",
-                "src/main/java/" + fullClassName.replace('.', '/') + ".java");
+                "src/main/java/" + fullClassName.replace('.', '/') + ".java",
+                "abc123");
     }
 
 }

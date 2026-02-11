@@ -95,11 +95,11 @@ public class SourceMethodRepository {
         jdbi.useHandle(handle -> handle.createUpdate("""
                 INSERT INTO source_methods (
                     id, class_id, method_name, description, business_logic,
-                    dependencies, exceptions, http_method, http_path,
+                    exceptions, http_method, http_path,
                     line_number, created_at
                 ) VALUES (
                     :id, :classId, :methodName, :description, :businessLogic,
-                    :dependencies, :exceptions, :httpMethod, :httpPath,
+                    :exceptions, :httpMethod, :httpPath,
                     :lineNumber, :createdAt
                 )
                 """)
@@ -108,7 +108,6 @@ public class SourceMethodRepository {
                 .bind("methodName", method.methodName())
                 .bind("description", method.description())
                 .bind("businessLogic", toJson(method.businessLogic()))
-                .bind("dependencies", toJson(method.dependencies()))
                 .bind("exceptions", toJson(method.exceptions()))
                 .bind("httpMethod", method.httpMethod())
                 .bind("httpPath", method.httpPath())
@@ -130,11 +129,11 @@ public class SourceMethodRepository {
             final var batch = handle.prepareBatch("""
                     INSERT INTO source_methods (
                         id, class_id, method_name, description, business_logic,
-                        dependencies, exceptions, http_method, http_path,
+                        exceptions, http_method, http_path,
                         line_number, created_at
                     ) VALUES (
                         :id, :classId, :methodName, :description, :businessLogic,
-                        :dependencies, :exceptions, :httpMethod, :httpPath,
+                        :exceptions, :httpMethod, :httpPath,
                         :lineNumber, :createdAt
                     )
                     """);
@@ -144,7 +143,6 @@ public class SourceMethodRepository {
                         .bind("methodName", m.methodName())
                         .bind("description", m.description())
                         .bind("businessLogic", toJson(m.businessLogic()))
-                        .bind("dependencies", toJson(m.dependencies()))
                         .bind("exceptions", toJson(m.exceptions()))
                         .bind("httpMethod", m.httpMethod())
                         .bind("httpPath", m.httpPath())
@@ -247,32 +245,28 @@ public class SourceMethodRepository {
      * Updates the enrichment data for a source method.
      *
      * <p>Used during Phase 2 of analysis to update the method with
-     * Claude-provided business descriptions, logic steps, dependencies,
-     * and exceptions.</p>
+     * Claude-provided business descriptions, logic steps, and
+     * exceptions.</p>
      *
      * @param id the source method ID
      * @param description the business description from Claude
      * @param businessLogic the business logic steps
-     * @param dependencies the dependencies
      * @param exceptions the exceptions
      */
     public void updateEnrichment(final String id,
             final String description,
             final List<String> businessLogic,
-            final List<String> dependencies,
             final List<String> exceptions) {
         jdbi.useHandle(handle -> handle.createUpdate("""
                 UPDATE source_methods
                 SET description = :description,
                     business_logic = :businessLogic,
-                    dependencies = :dependencies,
                     exceptions = :exceptions
                 WHERE id = :id
                 """)
                 .bind("id", id)
                 .bind("description", description)
                 .bind("businessLogic", toJson(businessLogic))
-                .bind("dependencies", toJson(dependencies))
                 .bind("exceptions", toJson(exceptions))
                 .execute());
     }
@@ -291,11 +285,12 @@ public class SourceMethodRepository {
                         SELECT * FROM source_methods
                         WHERE class_id = :classId
                           AND method_name = :methodName
+                        LIMIT 1
                         """)
                 .bind("classId", classId)
                 .bind("methodName", methodName)
                 .map(new SourceMethodRowMapper(objectMapper))
-                .findOne());
+                .findFirst());
     }
 
     /**
@@ -358,8 +353,6 @@ public class SourceMethodRepository {
             final String description = rs.getString("description");
             final List<String> businessLogic = fromJson(
                     rs.getString("business_logic"));
-            final List<String> dependencies = fromJson(
-                    rs.getString("dependencies"));
             final List<String> exceptions = fromJson(
                     rs.getString("exceptions"));
             final String httpMethod = rs.getString("http_method");
@@ -372,7 +365,7 @@ public class SourceMethodRepository {
 
             return SourceMethod.reconstitute(
                     id, classId, methodName, description, businessLogic,
-                    dependencies, exceptions, httpMethod, httpPath,
+                    exceptions, httpMethod, httpPath,
                     lineNumber, createdAt);
         }
 

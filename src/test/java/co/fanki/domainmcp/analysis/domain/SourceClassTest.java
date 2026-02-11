@@ -28,7 +28,8 @@ class SourceClassTest {
                 "co.fanki.user.UserService",
                 ClassType.SERVICE,
                 "Manages user operations",
-                "src/main/java/co/fanki/user/UserService.java");
+                "src/main/java/co/fanki/user/UserService.java",
+                "abc123def");
 
         assertNotNull(sourceClass.id());
         assertEquals(projectId, sourceClass.projectId());
@@ -37,6 +38,7 @@ class SourceClassTest {
         assertEquals("co.fanki.user", sourceClass.packageName());
         assertEquals(ClassType.SERVICE, sourceClass.classType());
         assertEquals("Manages user operations", sourceClass.description());
+        assertEquals("abc123def", sourceClass.commitHash());
         assertNotNull(sourceClass.createdAt());
     }
 
@@ -49,7 +51,8 @@ class SourceClassTest {
                 "UserService",
                 ClassType.SERVICE,
                 "Manages user operations",
-                "UserService.java");
+                "UserService.java",
+                null);
 
         assertEquals("UserService", sourceClass.fullClassName());
         assertEquals("UserService", sourceClass.simpleName());
@@ -60,7 +63,7 @@ class SourceClassTest {
     void whenCreatingClass_givenNullProjectId_shouldThrowException() {
         assertThrows(IllegalArgumentException.class, () ->
                 SourceClass.create(null, "co.fanki.Test", ClassType.OTHER,
-                        null, null));
+                        null, null, null));
     }
 
     @Test
@@ -69,7 +72,7 @@ class SourceClassTest {
 
         assertThrows(IllegalArgumentException.class, () ->
                 SourceClass.create(projectId, "  ", ClassType.OTHER,
-                        null, null));
+                        null, null, null));
     }
 
     @Test
@@ -78,7 +81,7 @@ class SourceClassTest {
 
         assertThrows(IllegalArgumentException.class, () ->
                 SourceClass.create(projectId, "co.fanki.Test", null,
-                        null, null));
+                        null, null, null));
     }
 
     @Test
@@ -134,6 +137,7 @@ class SourceClassTest {
                 ClassType.SERVICE,
                 "Manages user operations",
                 "src/main/java/co/fanki/user/UserService.java",
+                "abc123def",
                 createdAt);
 
         assertEquals(id, sourceClass.id());
@@ -143,6 +147,7 @@ class SourceClassTest {
         assertEquals("co.fanki.user", sourceClass.packageName());
         assertEquals(ClassType.SERVICE, sourceClass.classType());
         assertEquals("Manages user operations", sourceClass.description());
+        assertEquals("abc123def", sourceClass.commitHash());
         assertEquals(createdAt, sourceClass.createdAt());
     }
 
@@ -152,6 +157,7 @@ class SourceClassTest {
                 fullClassName,
                 ClassType.SERVICE,
                 "Test class",
+                null,
                 null);
     }
 

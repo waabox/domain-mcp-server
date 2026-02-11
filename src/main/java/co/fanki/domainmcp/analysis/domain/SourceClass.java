@@ -24,6 +24,7 @@ public final class SourceClass {
     private final ClassType classType;
     private final String description;
     private final String sourceFile;
+    private final String commitHash;
     private final Instant createdAt;
 
     private SourceClass(
@@ -35,6 +36,7 @@ public final class SourceClass {
             final ClassType theClassType,
             final String theDescription,
             final String theSourceFile,
+            final String theCommitHash,
             final Instant theCreatedAt) {
         this.id = Preconditions.requireNonBlank(theId, "Class ID is required");
         this.projectId = Preconditions.requireNonBlank(theProjectId,
@@ -48,6 +50,7 @@ public final class SourceClass {
                 "Class type is required");
         this.description = theDescription;
         this.sourceFile = theSourceFile;
+        this.commitHash = theCommitHash;
         this.createdAt = theCreatedAt != null ? theCreatedAt : Instant.now();
     }
 
@@ -59,6 +62,7 @@ public final class SourceClass {
      * @param classType the type of this class
      * @param description a description of what this class does
      * @param sourceFile the path to the source file
+     * @param commitHash the git commit hash this class was analyzed from
      * @return a new SourceClass instance
      */
     public static SourceClass create(
@@ -66,7 +70,8 @@ public final class SourceClass {
             final String fullClassName,
             final ClassType classType,
             final String description,
-            final String sourceFile) {
+            final String sourceFile,
+            final String commitHash) {
         final String simpleName = extractSimpleName(fullClassName);
         final String packageName = extractPackageName(fullClassName);
 
@@ -79,6 +84,7 @@ public final class SourceClass {
                 classType,
                 description,
                 sourceFile,
+                commitHash,
                 Instant.now());
     }
 
@@ -93,6 +99,7 @@ public final class SourceClass {
      * @param classType the class type
      * @param description the description
      * @param sourceFile the source file path
+     * @param commitHash the git commit hash
      * @param createdAt when this record was created
      * @return the reconstituted SourceClass
      */
@@ -105,10 +112,11 @@ public final class SourceClass {
             final ClassType classType,
             final String description,
             final String sourceFile,
+            final String commitHash,
             final Instant createdAt) {
         return new SourceClass(
                 id, projectId, fullClassName, simpleName, packageName,
-                classType, description, sourceFile, createdAt);
+                classType, description, sourceFile, commitHash, createdAt);
     }
 
     /**
@@ -182,6 +190,10 @@ public final class SourceClass {
 
     public String sourceFile() {
         return sourceFile;
+    }
+
+    public String commitHash() {
+        return commitHash;
     }
 
     public Instant createdAt() {

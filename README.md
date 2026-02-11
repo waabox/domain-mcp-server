@@ -1152,7 +1152,7 @@ claude mcp add --transport stdio domain-mcp-server \
   -e DATABASE_USERNAME=postgres \
   -e DATABASE_PASSWORD=postgres \
   -- java --enable-preview -Dspring.profiles.active=mcp \
-  -jar /absolute/path/to/domain-mcp-server-1.0.1.jar
+  -jar /absolute/path/to/domain-mcp-server-1.4.jar
 ```
 
 Use `--scope project` to add it only to the current project, or omit it for user-wide config.
@@ -1170,7 +1170,7 @@ Add this to your Claude Code MCP settings (`~/.claude/settings.json` or via `/se
         "--enable-preview",
         "-Dspring.profiles.active=mcp",
         "-jar",
-        "/absolute/path/to/domain-mcp-server-1.0.1.jar"
+        "/absolute/path/to/domain-mcp-server-1.4.jar"
       ],
       "env": {
         "DATABASE_URL": "jdbc:postgresql://localhost:5432/domain_mcp?currentSchema=domain_mcp",

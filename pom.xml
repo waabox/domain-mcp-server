@@ -14,7 +14,7 @@
 
     <groupId>co.fanki</groupId>
     <artifactId>domain-mcp-server</artifactId>
-    <version>1.0.1</version>
+    <version>1.4</version>
     <name>domain-mcp-server</name>
     <description>Domain MCP Server - Analyzes git repositories and extracts business information</description>
 

@@ -38,6 +38,34 @@ storing everything in PostgreSQL for fast, structured querying.
 Designed to work standalone or in concert with other MCP servers such
 as Datadog MCP.
 
+## Table of Contents
+
+- [Motivation](#motivation)
+- [What this MCP does](#what-this-mcp-does)
+- [Supported Languages](#supported-languages)
+- [Architecture](#architecture)
+- [Interacting with Claude](#interacting-with-claude)
+- [MCP Tools](#mcp-tools)
+  - [list_projects](#list_projects)
+  - [search_project](#search_project)
+  - [get_class_context](#get_class_context)
+  - [get_method_context](#get_method_context)
+  - [get_stack_trace_context](#get_stack_trace_context)
+  - [get_class_dependencies](#get_class_dependencies)
+  - [get_project_overview](#get_project_overview)
+  - [get_service_api](#get_service_api)
+  - [REST-Only Endpoints](#rest-only-endpoints)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Running](#running)
+- [Claude Code MCP Setup](#claude-code-mcp-setup)
+- [Integration with Datadog MCP server](#integration-with-datadog-mcp-server)
+- [Data model](#data-model)
+- [Healthcheck](#healthcheck)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Motivation
 
 Modern backends age into a zoo of microservices and monorepos.
@@ -73,6 +101,111 @@ Claude API (Sonnet 4.5) for per-class business analysis (language-aware prompts)
 Import-based dependency graph (no LLM needed for graph)\
 PostgreSQL persistence (JDBI3)\
 MCP stdio transport for Claude Code integration
+
+## Interacting with Claude
+
+Once the MCP server is connected, you can talk to Claude in natural language and it will automatically pick the right tools. Below are example prompts organized by use case.
+
+### Discovering projects
+
+> What projects are indexed?
+
+> Show me all the microservices you know about.
+
+> Is the payment-service already analyzed?
+
+Claude will call `list_projects` and summarize the results.
+
+### Searching within a project
+
+> Find all classes related to "Invoice" in the billing-service.
+
+> Search for anything related to "Kafka" in order-service.
+
+> What classes does payment-service have that deal with refunds?
+
+Claude will call `search_project` with the project name and your keyword.
+
+### Understanding a class
+
+> What does `co.fanki.order.domain.OrderService` do?
+
+> Explain the purpose of PaymentGatewayClient in the payment-service.
+
+> Tell me about the OrderController, specifically in the order-service project.
+
+Claude will call `get_class_context` (with optional `projectName` scoping) and explain the class type, business description, methods, and graph relationships.
+
+### Understanding a method
+
+> What does the `placeOrder` method do in `co.fanki.order.domain.OrderService`?
+
+> Explain the business logic of `processRefund` in the payment-service's RefundService.
+
+> What exceptions can `chargeCustomer` throw?
+
+Claude will call `get_method_context` and return the description, business logic steps, exceptions, HTTP endpoint info, and parameter types.
+
+### Investigating errors from Datadog
+
+> I'm seeing a PaymentDeclinedException in production. Here's the stack trace: [paste stack trace]
+
+> Correlate this Datadog error trace and tell me what went wrong.
+
+> We got an error in `co.fanki.order.domain.OrderService.placeOrder` at line 92. What does that code do and what are its dependencies?
+
+Claude will call `get_stack_trace_context` with the frames and explain each step in the execution path, flag missing context, and include related dependency classes.
+
+### Exploring dependencies
+
+> What does `OrderService` depend on?
+
+> What classes import `PaymentGatewayClient`?
+
+> Show me the full dependency graph around `co.fanki.billing.domain.InvoiceService` in the billing-service.
+
+Claude will call `get_class_dependencies` and show outgoing dependencies, incoming dependents, and method parameter types.
+
+### Getting a project overview
+
+> Give me an overview of the order-service architecture.
+
+> What entry points does payment-service have?
+
+> How many controllers vs services vs repositories does billing-service have?
+
+Claude will call `get_project_overview` and summarize the architecture: entry points, HTTP endpoints, class type breakdown, and project description.
+
+### Integrating with another microservice
+
+> Create a Feign client for the endpoint `getStock` from stock-service.
+
+> I need to call payment-service's `chargeCustomer` endpoint from order-service. Generate the Feign client, the request DTO, and the response DTO.
+
+> Show me the full API surface of notification-service so I can build an integration layer.
+
+> What DTOs does billing-service expect in its `createInvoice` endpoint? Generate them in my project.
+
+Claude will call `get_service_api` and/or `get_method_context` to retrieve the endpoint details (HTTP method, path, parameter types, response), then generate the Feign client interface, DTOs, and any configuration needed to integrate with the target service.
+
+### Combining tools in a single conversation
+
+You can chain multiple questions and Claude will pick the right tools automatically:
+
+> 1. Which projects are indexed?
+> 2. Search for "Stock" classes in the stock-service.
+> 3. I want to connect to stock-service using the `getStock` method -- what does it do, what parameters does it need, and what endpoint should I call?
+> 4. Show me the full API surface of stock-service so I can build a Feign client.
+
+Claude will chain `list_projects` -> `search_project` -> `get_method_context` -> `get_service_api` across the conversation, building up context as it goes.
+
+### Datadog + Domain MCP combined workflow
+
+When both the Datadog MCP and Domain MCP servers are connected:
+
+> Check the last 10 error traces for order-service in the past hour, correlate the logs, and explain what each class in the stack trace does.
+
+Claude will automatically chain Datadog tools (`trace_list_error_traces`, `log_correlate`) with Domain MCP tools (`get_stack_trace_context`, `get_class_context`) to produce a full root cause analysis.
 
 ## MCP Tools
 
@@ -984,111 +1117,6 @@ Restart Claude Code. The 8 domain-mcp-server tools (`list_projects`, `search_pro
 - stdout is reserved exclusively for JSON-RPC messages
 - REST endpoints remain available on port 8080 for populating data via HTTP
 - Both transports share the same database and service layer
-
-## Interacting with Claude
-
-Once the MCP server is connected, you can talk to Claude in natural language and it will automatically pick the right tools. Below are example prompts organized by use case.
-
-### Discovering projects
-
-> What projects are indexed?
-
-> Show me all the microservices you know about.
-
-> Is the payment-service already analyzed?
-
-Claude will call `list_projects` and summarize the results.
-
-### Searching within a project
-
-> Find all classes related to "Invoice" in the billing-service.
-
-> Search for anything related to "Kafka" in order-service.
-
-> What classes does payment-service have that deal with refunds?
-
-Claude will call `search_project` with the project name and your keyword.
-
-### Understanding a class
-
-> What does `co.fanki.order.domain.OrderService` do?
-
-> Explain the purpose of PaymentGatewayClient in the payment-service.
-
-> Tell me about the OrderController, specifically in the order-service project.
-
-Claude will call `get_class_context` (with optional `projectName` scoping) and explain the class type, business description, methods, and graph relationships.
-
-### Understanding a method
-
-> What does the `placeOrder` method do in `co.fanki.order.domain.OrderService`?
-
-> Explain the business logic of `processRefund` in the payment-service's RefundService.
-
-> What exceptions can `chargeCustomer` throw?
-
-Claude will call `get_method_context` and return the description, business logic steps, exceptions, HTTP endpoint info, and parameter types.
-
-### Investigating errors from Datadog
-
-> I'm seeing a PaymentDeclinedException in production. Here's the stack trace: [paste stack trace]
-
-> Correlate this Datadog error trace and tell me what went wrong.
-
-> We got an error in `co.fanki.order.domain.OrderService.placeOrder` at line 92. What does that code do and what are its dependencies?
-
-Claude will call `get_stack_trace_context` with the frames and explain each step in the execution path, flag missing context, and include related dependency classes.
-
-### Exploring dependencies
-
-> What does `OrderService` depend on?
-
-> What classes import `PaymentGatewayClient`?
-
-> Show me the full dependency graph around `co.fanki.billing.domain.InvoiceService` in the billing-service.
-
-Claude will call `get_class_dependencies` and show outgoing dependencies, incoming dependents, and method parameter types.
-
-### Getting a project overview
-
-> Give me an overview of the order-service architecture.
-
-> What entry points does payment-service have?
-
-> How many controllers vs services vs repositories does billing-service have?
-
-Claude will call `get_project_overview` and summarize the architecture: entry points, HTTP endpoints, class type breakdown, and project description.
-
-### Integrating with another microservice
-
-> Create a Feign client for the endpoint `getStock` from stock-service.
-
-> I need to call payment-service's `chargeCustomer` endpoint from order-service. Generate the Feign client, the request DTO, and the response DTO.
-
-> Show me the full API surface of notification-service so I can build an integration layer.
-
-> What DTOs does billing-service expect in its `createInvoice` endpoint? Generate them in my project.
-
-Claude will call `get_service_api` and/or `get_method_context` to retrieve the endpoint details (HTTP method, path, parameter types, response), then generate the Feign client interface, DTOs, and any configuration needed to integrate with the target service.
-
-### Combining tools in a single conversation
-
-You can chain multiple questions and Claude will pick the right tools automatically:
-
-> 1. Which projects are indexed?
-> 2. Search for "Stock" classes in the stock-service.
-> 3. I want to connect to stock-service using the `getStock` method -- what does it do, what parameters does it need, and what endpoint should I call?
-> 4. Show me the full API surface of stock-service so I can build a Feign client.
-
-Claude will chain `list_projects` -> `search_project` -> `get_method_context` -> `get_service_api` across the conversation, building up context as it goes.
-
-### Datadog + Domain MCP combined workflow
-
-When both the Datadog MCP and Domain MCP servers are connected:
-
-> Check the last 10 error traces for order-service in the past hour, correlate the logs, and explain what each class in the stack trace does.
-
-Claude will automatically chain Datadog tools (`trace_list_error_traces`, `log_correlate`) with Domain MCP tools (`get_stack_trace_context`, `get_class_context`) to produce a full root cause analysis.
 
 ## Integration with Datadog MCP server
 

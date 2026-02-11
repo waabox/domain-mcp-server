@@ -4,7 +4,7 @@ import co.fanki.domainmcp.project.domain.Project;
 import co.fanki.domainmcp.project.domain.ProjectRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.boot.context.event.ApplicationStartedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -48,7 +48,7 @@ public class GraphService {
      * Loads all project graphs from the database after the application
      * is fully initialized (including Flyway migrations).
      */
-    @EventListener(ApplicationReadyEvent.class)
+    @EventListener(ApplicationStartedEvent.class)
     public void loadAll() {
         LOG.info("Loading project graphs into cache");
 

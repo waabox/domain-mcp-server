@@ -452,73 +452,6 @@ class JavaSourceParserTest {
         assertTrue(graph.contains("Main"));
     }
 
-    // -- parseImportLine() --
-
-    @Test
-    void whenParsingImportLine_givenRegularImport_shouldReturnFqcn() {
-        final String result = parser.parseImportLine(
-                "import co.fanki.user.UserService;");
-
-        assertEquals("co.fanki.user.UserService", result);
-    }
-
-    @Test
-    void whenParsingImportLine_givenStaticImport_shouldReturnClassPart() {
-        final String result = parser.parseImportLine(
-                "import static co.fanki.app.Constants.MAX_RETRIES;");
-
-        assertEquals("co.fanki.app.Constants", result);
-    }
-
-    @Test
-    void whenParsingImportLine_givenWildcardImport_shouldReturnNull() {
-        final String result = parser.parseImportLine(
-                "import co.fanki.user.*;");
-
-        assertNull(result);
-    }
-
-    @Test
-    void whenParsingImportLine_givenStaticWildcardImport_shouldReturnNull() {
-        final String result = parser.parseImportLine(
-                "import static co.fanki.app.Constants.*;");
-
-        assertNull(result);
-    }
-
-    @Test
-    void whenParsingImportLine_givenNonImportLine_shouldReturnNull() {
-        assertNull(parser.parseImportLine("package co.fanki.app;"));
-        assertNull(parser.parseImportLine("public class Foo {"));
-        assertNull(parser.parseImportLine("// import co.fanki.app.Foo;"));
-    }
-
-    @Test
-    void whenParsingImportLine_givenNullInput_shouldReturnNull() {
-        assertNull(parser.parseImportLine(null));
-    }
-
-    @Test
-    void whenParsingImportLine_givenEmptyImport_shouldReturnNull() {
-        assertNull(parser.parseImportLine("import ;"));
-    }
-
-    @Test
-    void whenParsingImportLine_givenImportWithExtraSpaces_shouldTrim() {
-        final String result = parser.parseImportLine(
-                "import   co.fanki.app.Service  ;");
-
-        assertEquals("co.fanki.app.Service", result);
-    }
-
-    @Test
-    void whenParsingImportLine_givenStaticImportWithExtraSpaces_shouldTrim() {
-        final String result = parser.parseImportLine(
-                "import  static   co.fanki.app.Util.VALUE  ;");
-
-        assertEquals("co.fanki.app.Util", result);
-    }
-
     // -- Analysis order with BFS from entry points --
 
     @Test
@@ -1196,6 +1129,116 @@ class JavaSourceParserTest {
         assertEquals("process", methods.get(0).methodName());
         assertEquals(List.of("IllegalStateException"),
                 methods.get(0).exceptions());
+    }
+
+    @Test
+    void whenExtractingMethods_givenGenericReturnTypes_shouldExtractCorrectly(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "EventService.java", """
+                package co.fanki.app;
+
+                import java.util.List;
+                import java.util.Map;
+                import java.util.Optional;
+
+                public class EventService {
+
+                    public Map<String, List<String>> getByCode(String code) {
+                        return null;
+                    }
+
+                    public Optional<Map<String, Object>> findDetails(String id) {
+                        return Optional.empty();
+                    }
+
+                    public List<String> findAll() {
+                        return List.of();
+                    }
+
+                    public void save(String name) {
+                    }
+                }
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertEquals(4, methods.size());
+        assertEquals("getByCode", methods.get(0).methodName());
+        assertEquals("findDetails", methods.get(1).methodName());
+        assertEquals("findAll", methods.get(2).methodName());
+        assertEquals("save", methods.get(3).methodName());
+    }
+
+    @Test
+    void whenExtractingMethods_givenConstructorAndMethod_shouldExtractBoth(
+            @TempDir final Path projectRoot) throws IOException {
+
+        // Note: the regex-based parser also matches constructors because
+        // the access modifier can be consumed as a "return type".
+        // This is a known limitation that does not affect enrichment
+        // quality, since constructor descriptions are still useful.
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "MyService.java", """
+                package co.fanki.app;
+
+                public class MyService {
+
+                    public MyService(String dependency) {
+                    }
+
+                    public void doWork() {
+                    }
+                }
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertEquals(2, methods.size());
+        assertEquals("MyService", methods.get(0).methodName());
+        assertEquals("doWork", methods.get(1).methodName());
+    }
+
+    @Test
+    void whenExtractingParams_givenGenericReturnType_shouldExtractParams(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+
+        writeJavaFile(sourceRoot, "co/fanki/app", "OrderService.java", """
+                package co.fanki.app;
+
+                import java.util.Map;
+                import java.util.List;
+                import co.fanki.app.Order;
+
+                public class OrderService {
+                    public Map<String, List<Order>> findOrders(Order filter) {
+                        return null;
+                    }
+                }
+                """);
+
+        writeJavaFile(sourceRoot, "co/fanki/app", "Order.java", """
+                package co.fanki.app;
+                public class Order {}
+                """);
+
+        final Path file = sourceRoot
+                .resolve("co/fanki/app/OrderService.java");
+        final Set<String> known = Set.of(
+                "co.fanki.app.OrderService",
+                "co.fanki.app.Order");
+
+        final Map<String, List<String>> result =
+                parser.extractMethodParameters(file, sourceRoot, known);
+
+        assertTrue(result.containsKey("findOrders"));
+        assertEquals(List.of("co.fanki.app.Order"),
+                result.get("findOrders"));
     }
 
     // -- Helper methods --

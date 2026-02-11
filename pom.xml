@@ -132,6 +132,13 @@
             <version>2.14.0</version>
         </dependency>
 
+        <!-- JavaParser for AST-based Java source analysis -->
+        <dependency>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-core</artifactId>
+            <version>3.26.4</version>
+        </dependency>
+
         <!-- TestContainers (deprecated container-based analysis) -->
         <dependency>
             <groupId>org.testcontainers</groupId>

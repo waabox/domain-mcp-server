@@ -3,6 +3,23 @@ package co.fanki.domainmcp.analysis.domain.java;
 import co.fanki.domainmcp.analysis.domain.ClassType;
 import co.fanki.domainmcp.analysis.domain.SourceParser;
 import co.fanki.domainmcp.analysis.domain.StaticMethodInfo;
+
+import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.ImportDeclaration;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.EnumDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.RecordDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.MemberValuePair;
+import com.github.javaparser.ast.expr.NormalAnnotationExpr;
+import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
+import com.github.javaparser.ast.type.ReferenceType;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,17 +31,16 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
  * Java-specific implementation of {@link SourceParser}.
  *
- * <p>Discovers .java source files under src/main/java, extracts import
- * statements to build the dependency graph, and identifies entry points
- * based on Spring annotations.</p>
+ * <p>Discovers .java source files under src/main/java and uses JavaParser
+ * to build an AST for extracting imports, methods, annotations, and
+ * parameter types.</p>
  *
  * <p>Entry point patterns:</p>
  * <ul>
@@ -43,41 +59,27 @@ public class JavaSourceParser extends SourceParser {
 
     private static final String SOURCE_ROOT = "src/main/java";
 
-    /** Matches a Java method declaration with its parameter list. */
-    private static final Pattern METHOD_DECLARATION_PATTERN = Pattern.compile(
-            "(?:public|protected|private)?\\s*"
-                    + "(?:static\\s+)?(?:final\\s+)?(?:synchronized\\s+)?"
-                    + "(?:<[^>]+>\\s+)?"
-                    + "\\S+\\s+(\\w+)\\s*\\(([^)]*)\\)");
-
     private static final Set<String> ENTRY_POINT_ANNOTATIONS = Set.of(
-            "@RestController",
-            "@Controller",
-            "@KafkaListener",
-            "@Scheduled",
-            "@EventListener",
-            "@SpringBootApplication"
+            "RestController",
+            "Controller",
+            "KafkaListener",
+            "Scheduled",
+            "EventListener",
+            "SpringBootApplication"
     );
 
     /** Maps Spring annotations to their corresponding ClassType. */
     private static final Map<String, ClassType> ANNOTATION_CLASS_TYPE_MAP =
             Map.ofEntries(
-                    Map.entry("@RestController", ClassType.CONTROLLER),
-                    Map.entry("@Controller", ClassType.CONTROLLER),
-                    Map.entry("@Service", ClassType.SERVICE),
-                    Map.entry("@Repository", ClassType.REPOSITORY),
-                    Map.entry("@Configuration", ClassType.CONFIGURATION),
-                    Map.entry("@Entity", ClassType.ENTITY),
-                    Map.entry("@KafkaListener", ClassType.LISTENER),
-                    Map.entry("@EventListener", ClassType.LISTENER)
+                    Map.entry("RestController", ClassType.CONTROLLER),
+                    Map.entry("Controller", ClassType.CONTROLLER),
+                    Map.entry("Service", ClassType.SERVICE),
+                    Map.entry("Repository", ClassType.REPOSITORY),
+                    Map.entry("Configuration", ClassType.CONFIGURATION),
+                    Map.entry("Entity", ClassType.ENTITY),
+                    Map.entry("KafkaListener", ClassType.LISTENER),
+                    Map.entry("EventListener", ClassType.LISTENER)
             );
-
-    /** Matches HTTP mapping annotations with optional path value. */
-    private static final Pattern HTTP_ANNOTATION_PATTERN = Pattern.compile(
-            "@(GetMapping|PostMapping|PutMapping|DeleteMapping"
-                    + "|PatchMapping|RequestMapping)"
-                    + "(?:\\s*\\(\\s*(?:value\\s*=\\s*)?\"([^\"]*)\""
-                    + ".*?\\))?");
 
     /** Maps annotation names to HTTP methods. */
     private static final Map<String, String> HTTP_METHOD_MAP = Map.of(
@@ -87,17 +89,6 @@ public class JavaSourceParser extends SourceParser {
             "DeleteMapping", "DELETE",
             "PatchMapping", "PATCH"
     );
-
-    /** Matches a method declaration line to extract name + throws clause. */
-    private static final Pattern METHOD_LINE_PATTERN = Pattern.compile(
-            "(?:public|protected|private)?\\s*"
-                    + "(?:static\\s+)?(?:final\\s+)?(?:synchronized\\s+)?"
-                    + "(?:<[^>]+>\\s+)?"
-                    + "\\S+\\s+(\\w+)\\s*\\(");
-
-    /** Extracts the throws clause from a collapsed method signature. */
-    private static final Pattern THROWS_PATTERN = Pattern.compile(
-            "\\)\\s*throws\\s+([^{]+)\\{");
 
     /** {@inheritDoc} */
     @Override
@@ -165,8 +156,8 @@ public class JavaSourceParser extends SourceParser {
     /**
      * Extracts internal import dependencies from a Java source file.
      *
-     * <p>Parses import statements and filters to only include imports
-     * that match known identifiers within the project.</p>
+     * <p>Parses import statements via the AST and filters to only include
+     * imports that match known identifiers within the project.</p>
      *
      * @param file the Java source file
      * @param knownIdentifiers all known identifiers in the project
@@ -177,21 +168,14 @@ public class JavaSourceParser extends SourceParser {
     protected Set<String> extractDependencies(final Path file,
             final Set<String> knownIdentifiers) throws IOException {
 
+        final CompilationUnit cu = parseFile(file);
         final Set<String> deps = new HashSet<>();
-        final List<String> lines = Files.readAllLines(file);
 
-        for (final String line : lines) {
-            final String trimmed = line.trim();
-
-            // Stop scanning after the class/interface declaration
-            if (isClassDeclaration(trimmed)) {
-                break;
-            }
-
-            final String importedClass = parseImportLine(trimmed);
-            if (importedClass != null
-                    && knownIdentifiers.contains(importedClass)) {
-                deps.add(importedClass);
+        for (final ImportDeclaration imp : cu.getImports()) {
+            final String imported = resolveImportIdentifier(imp);
+            if (imported != null
+                    && knownIdentifiers.contains(imported)) {
+                deps.add(imported);
             }
         }
 
@@ -208,13 +192,23 @@ public class JavaSourceParser extends SourceParser {
      */
     @Override
     protected boolean isEntryPoint(final Path file) throws IOException {
-        final List<String> lines = Files.readAllLines(file);
+        final CompilationUnit cu = parseFile(file);
 
-        for (final String line : lines) {
-            final String trimmed = line.trim();
-            for (final String annotation : ENTRY_POINT_ANNOTATIONS) {
-                if (trimmed.startsWith(annotation)) {
+        for (final TypeDeclaration<?> type : cu.getTypes()) {
+            for (final AnnotationExpr ann : type.getAnnotations()) {
+                if (ENTRY_POINT_ANNOTATIONS.contains(
+                        ann.getNameAsString())) {
                     return true;
+                }
+            }
+
+            // Check method-level annotations (e.g. @KafkaListener on method)
+            for (final MethodDeclaration method : type.getMethods()) {
+                for (final AnnotationExpr ann : method.getAnnotations()) {
+                    if (ENTRY_POINT_ANNOTATIONS.contains(
+                            ann.getNameAsString())) {
+                        return true;
+                    }
                 }
             }
         }
@@ -225,9 +219,9 @@ public class JavaSourceParser extends SourceParser {
     /**
      * Infers the {@link ClassType} from Spring annotations on the class.
      *
-     * <p>Scans for Spring/Jakarta annotations before the class declaration
-     * and maps them to the corresponding ClassType. If multiple annotations
-     * match, the first one found (by annotation priority) wins.</p>
+     * <p>Scans for Spring/Jakarta annotations on the type declaration and
+     * on method declarations, mapping them to the corresponding ClassType.
+     * The first annotation found (by type-level then method-level) wins.</p>
      *
      * @param file the Java source file to analyze
      * @return the inferred class type
@@ -235,33 +229,27 @@ public class JavaSourceParser extends SourceParser {
      */
     @Override
     public ClassType inferClassType(final Path file) throws IOException {
-        final List<String> lines = Files.readAllLines(file);
+        final CompilationUnit cu = parseFile(file);
 
-        // First pass: scan class-level annotations (before class decl)
-        for (final String line : lines) {
-            final String trimmed = line.trim();
-
-            if (isClassDeclaration(trimmed)) {
-                break;
-            }
-
-            for (final Map.Entry<String, ClassType> entry
-                    : ANNOTATION_CLASS_TYPE_MAP.entrySet()) {
-                if (trimmed.startsWith(entry.getKey())) {
-                    return entry.getValue();
+        for (final TypeDeclaration<?> type : cu.getTypes()) {
+            // First pass: class-level annotations
+            for (final AnnotationExpr ann : type.getAnnotations()) {
+                final ClassType classType = ANNOTATION_CLASS_TYPE_MAP.get(
+                        ann.getNameAsString());
+                if (classType != null) {
+                    return classType;
                 }
             }
-        }
 
-        // Second pass: scan for method-level annotations that indicate
-        // class type (e.g. @KafkaListener, @EventListener inside body)
-        for (final String line : lines) {
-            final String trimmed = line.trim();
-            if (trimmed.startsWith("@KafkaListener")) {
-                return ClassType.LISTENER;
-            }
-            if (trimmed.startsWith("@EventListener")) {
-                return ClassType.LISTENER;
+            // Second pass: method-level annotations that indicate class type
+            for (final MethodDeclaration method : type.getMethods()) {
+                for (final AnnotationExpr ann : method.getAnnotations()) {
+                    final String name = ann.getNameAsString();
+                    if ("KafkaListener".equals(name)
+                            || "EventListener".equals(name)) {
+                        return ClassType.LISTENER;
+                    }
+                }
             }
         }
 
@@ -272,9 +260,9 @@ public class JavaSourceParser extends SourceParser {
      * Extracts method declarations from a Java source file with line
      * numbers, HTTP annotations, and throws clauses.
      *
-     * <p>Iterates through the source lines tracking line numbers. When a
-     * method declaration is found, records its line number, checks preceding
-     * lines for HTTP mapping annotations, and parses throws clauses.</p>
+     * <p>Uses the JavaParser AST to visit method and constructor
+     * declarations, extracting line numbers, HTTP mapping annotations,
+     * and throws clauses.</p>
      *
      * @param file the Java source file to analyze
      * @return list of statically extracted method information
@@ -284,151 +272,103 @@ public class JavaSourceParser extends SourceParser {
     public List<StaticMethodInfo> extractMethods(final Path file)
             throws IOException {
 
-        final List<String> lines = Files.readAllLines(file);
+        final CompilationUnit cu = parseFile(file);
         final List<StaticMethodInfo> result = new ArrayList<>();
 
-        boolean inClassBody = false;
-        int braceDepth = 0;
-        int methodBraceDepth = -1;
+        for (final TypeDeclaration<?> type : cu.getTypes()) {
 
-        for (int i = 0; i < lines.size(); i++) {
-            final String trimmed = lines.get(i).trim();
+            // Extract constructors
+            if (type instanceof ClassOrInterfaceDeclaration classDecl) {
+                for (final ConstructorDeclaration ctor
+                        : classDecl.getConstructors()) {
 
-            if (!inClassBody && isClassDeclaration(trimmed)) {
-                inClassBody = true;
-                braceDepth += countChar(trimmed, '{')
-                        - countChar(trimmed, '}');
-                continue;
-            }
+                    final int lineNumber = ctor.getBegin()
+                            .map(pos -> pos.line)
+                            .orElse(0);
 
-            if (!inClassBody) {
-                continue;
-            }
+                    final List<String> exceptions = ctor
+                            .getThrownExceptions()
+                            .stream()
+                            .map(ReferenceType::asString)
+                            .toList();
 
-            braceDepth += countChar(trimmed, '{') - countChar(trimmed, '}');
+                    result.add(new StaticMethodInfo(
+                            ctor.getNameAsString(),
+                            lineNumber,
+                            null, null,
+                            exceptions));
+                }
+            } else if (type instanceof RecordDeclaration recordDecl) {
+                for (final ConstructorDeclaration ctor
+                        : recordDecl.getConstructors()) {
 
-            // Skip lines inside method bodies (depth > 1 means inside a
-            // method)
-            if (methodBraceDepth >= 0 && braceDepth > methodBraceDepth) {
-                continue;
-            }
-            methodBraceDepth = -1;
+                    final int lineNumber = ctor.getBegin()
+                            .map(pos -> pos.line)
+                            .orElse(0);
 
-            // Try to match a method declaration
-            final Matcher methodMatcher = METHOD_LINE_PATTERN.matcher(trimmed);
-            if (!methodMatcher.find()) {
-                continue;
-            }
+                    final List<String> exceptions = ctor
+                            .getThrownExceptions()
+                            .stream()
+                            .map(ReferenceType::asString)
+                            .toList();
 
-            final String methodName = methodMatcher.group(1);
-            final int lineNumber = i + 1; // 1-based
-
-            // Mark that we're now inside a method body
-            if (trimmed.contains("{")) {
-                methodBraceDepth = braceDepth - 1;
-            }
-
-            // Look for HTTP annotation in preceding lines (scan closest first)
-            String httpMethod = null;
-            String httpPath = null;
-
-            for (int j = i - 1; j >= Math.max(0, i - 5); j--) {
-                final String annotationLine = lines.get(j).trim();
-                final Matcher httpMatcher = HTTP_ANNOTATION_PATTERN.matcher(
-                        annotationLine);
-                if (httpMatcher.find()) {
-                    final String annotationName = httpMatcher.group(1);
-                    httpPath = httpMatcher.group(2);
-
-                    if ("RequestMapping".equals(annotationName)) {
-                        // RequestMapping needs method= attribute; default GET
-                        httpMethod = extractRequestMappingMethod(
-                                annotationLine);
-                    } else {
-                        httpMethod = HTTP_METHOD_MAP.get(annotationName);
-                    }
-                    break;
+                    result.add(new StaticMethodInfo(
+                            ctor.getNameAsString(),
+                            lineNumber,
+                            null, null,
+                            exceptions));
                 }
             }
 
-            // Parse throws clause by collapsing from current line onward
-            final List<String> exceptions = extractThrowsClause(lines, i);
+            // Extract methods
+            for (final MethodDeclaration method : type.getMethods()) {
+                final int lineNumber = method.getBegin()
+                        .map(pos -> pos.line)
+                        .orElse(0);
 
-            result.add(new StaticMethodInfo(
-                    methodName, lineNumber, httpMethod, httpPath, exceptions));
+                final String methodName = method.getNameAsString();
+
+                // Extract HTTP annotation info
+                String httpMethod = null;
+                String httpPath = null;
+
+                for (final AnnotationExpr ann : method.getAnnotations()) {
+                    final String annName = ann.getNameAsString();
+
+                    if (HTTP_METHOD_MAP.containsKey(annName)) {
+                        httpMethod = HTTP_METHOD_MAP.get(annName);
+                        httpPath = extractAnnotationPath(ann);
+                        break;
+                    }
+
+                    if ("RequestMapping".equals(annName)) {
+                        httpMethod = extractRequestMappingMethod(ann);
+                        httpPath = extractAnnotationPath(ann);
+                        break;
+                    }
+                }
+
+                // Extract throws clause
+                final List<String> exceptions = method
+                        .getThrownExceptions()
+                        .stream()
+                        .map(ReferenceType::asString)
+                        .toList();
+
+                result.add(new StaticMethodInfo(
+                        methodName, lineNumber,
+                        httpMethod, httpPath, exceptions));
+            }
         }
 
         return result;
     }
 
     /**
-     * Extracts the HTTP method from a @RequestMapping annotation line.
-     *
-     * <p>Looks for method = RequestMethod.XXX in the annotation. Defaults
-     * to GET if no method attribute is found.</p>
-     */
-    private String extractRequestMappingMethod(final String annotationLine) {
-        final Pattern requestMethodPattern = Pattern.compile(
-                "method\\s*=\\s*RequestMethod\\.(\\w+)");
-        final Matcher matcher = requestMethodPattern.matcher(annotationLine);
-        if (matcher.find()) {
-            return matcher.group(1);
-        }
-        return "GET";
-    }
-
-    /**
-     * Extracts the throws clause from a method declaration starting at the
-     * given line index.
-     *
-     * <p>Collapses lines from the method declaration through the opening
-     * brace to handle multiline signatures, then parses the throws clause.</p>
-     */
-    private List<String> extractThrowsClause(final List<String> lines,
-            final int startLine) {
-
-        final StringBuilder sig = new StringBuilder();
-        for (int i = startLine;
-                i < Math.min(startLine + 10, lines.size()); i++) {
-            sig.append(lines.get(i).trim()).append(' ');
-            if (lines.get(i).contains("{")) {
-                break;
-            }
-        }
-
-        final Matcher matcher = THROWS_PATTERN.matcher(sig);
-        if (!matcher.find()) {
-            return List.of();
-        }
-
-        final String throwsList = matcher.group(1).trim();
-        final String[] parts = throwsList.split(",");
-        final List<String> exceptions = new ArrayList<>();
-        for (final String part : parts) {
-            final String ex = part.trim();
-            if (!ex.isEmpty()) {
-                exceptions.add(ex);
-            }
-        }
-        return exceptions;
-    }
-
-    private int countChar(final String s, final char c) {
-        int count = 0;
-        for (int i = 0; i < s.length(); i++) {
-            if (s.charAt(i) == c) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    /**
      * Extracts method parameters from a Java source file.
      *
-     * <p>Parses import statements to build a type resolution map, then
-     * scans method declarations in the class body to match parameter types
-     * against known project identifiers.</p>
+     * <p>Uses the AST to parse imports and method declarations, resolving
+     * parameter types against known project identifiers.</p>
      *
      * @param file the Java source file
      * @param sourceRoot the resolved source root path
@@ -441,31 +381,48 @@ public class JavaSourceParser extends SourceParser {
             final Path file, final Path sourceRoot,
             final Set<String> knownIdentifiers) throws IOException {
 
-        final List<String> lines = Files.readAllLines(file);
-        final String filePackage = extractPackage(lines);
-        final Map<String, String> importMap = buildImportMap(lines);
+        final CompilationUnit cu = parseFile(file);
+        final String filePackage = cu.getPackageDeclaration()
+                .map(pd -> pd.getNameAsString())
+                .orElse(null);
+
+        // Build import map: simple name -> FQCN
+        final Map<String, String> importMap = new HashMap<>();
+        for (final ImportDeclaration imp : cu.getImports()) {
+            if (!imp.isAsterisk()) {
+                final String fqcn = imp.isStatic()
+                        ? extractStaticImportClass(imp)
+                        : imp.getNameAsString();
+                if (fqcn != null) {
+                    final int lastDot = fqcn.lastIndexOf('.');
+                    if (lastDot > 0) {
+                        final String simpleName =
+                                fqcn.substring(lastDot + 1);
+                        importMap.put(simpleName, fqcn);
+                    }
+                }
+            }
+        }
 
         final Map<String, List<String>> result = new HashMap<>();
 
-        // Join lines into class body, collapsing multiline method signatures
-        final String classBody = extractClassBody(lines);
-        final String normalized = collapseMethodSignatures(classBody);
+        for (final TypeDeclaration<?> type : cu.getTypes()) {
 
-        final Matcher matcher = METHOD_DECLARATION_PATTERN.matcher(normalized);
-        while (matcher.find()) {
-            final String methodName = matcher.group(1);
-            final String paramList = matcher.group(2).trim();
-
-            if (paramList.isEmpty()) {
-                continue;
+            // Process constructors
+            if (type instanceof ClassOrInterfaceDeclaration classDecl) {
+                for (final ConstructorDeclaration ctor
+                        : classDecl.getConstructors()) {
+                    processParameters(ctor.getNameAsString(),
+                            ctor.getParameters(), importMap,
+                            filePackage, knownIdentifiers, result);
+                }
             }
 
-            final List<String> matchedParams =
-                    resolveParameterTypes(paramList, importMap,
-                            filePackage, knownIdentifiers);
-
-            if (!matchedParams.isEmpty()) {
-                result.put(methodName, matchedParams);
+            // Process methods
+            for (final MethodDeclaration method : type.getMethods()) {
+                processParameters(method.getNameAsString(),
+                        method.getParameters(), importMap,
+                        filePackage, knownIdentifiers, result);
             }
         }
 
@@ -473,79 +430,25 @@ public class JavaSourceParser extends SourceParser {
     }
 
     /**
-     * Extracts the class body from the source lines, skipping everything
-     * before the first class/interface/enum/record declaration.
+     * Resolves parameter types for a single method/constructor and adds
+     * matched parameters to the result map.
      */
-    private String extractClassBody(final List<String> lines) {
-        final StringBuilder body = new StringBuilder();
-        boolean inClassBody = false;
-
-        for (final String line : lines) {
-            final String trimmed = line.trim();
-
-            if (!inClassBody && isClassDeclaration(trimmed)) {
-                inClassBody = true;
-                continue;
-            }
-
-            if (inClassBody) {
-                body.append(trimmed).append(' ');
-            }
-        }
-
-        return body.toString();
-    }
-
-    /**
-     * Collapses multiline method signatures into single lines.
-     *
-     * <p>Joins content between an opening parenthesis that is not closed
-     * on the same line, by collapsing whitespace. This allows the method
-     * declaration regex to match signatures that span multiple lines.</p>
-     */
-    private String collapseMethodSignatures(final String classBody) {
-        final StringBuilder result = new StringBuilder();
-        int depth = 0;
-
-        for (int i = 0; i < classBody.length(); i++) {
-            final char c = classBody.charAt(i);
-
-            if (c == '(') {
-                depth++;
-                result.append(c);
-            } else if (c == ')') {
-                depth = Math.max(0, depth - 1);
-                result.append(c);
-            } else if (depth > 0 && (c == '\n' || c == '\r')) {
-                // Inside parens, replace newlines with space
-                result.append(' ');
-            } else {
-                result.append(c);
-            }
-        }
-
-        // Collapse multiple whitespace into single spaces
-        return result.toString().replaceAll("\\s+", " ");
-    }
-
-    /**
-     * Resolves parameter types from a method's parameter list string.
-     *
-     * <p>Splits by comma, extracts the type name (handling generics and
-     * annotations), resolves against imports and same-package, and
-     * filters to known identifiers only.</p>
-     */
-    private List<String> resolveParameterTypes(
-            final String paramList,
+    private void processParameters(
+            final String name,
+            final List<Parameter> parameters,
             final Map<String, String> importMap,
             final String filePackage,
-            final Set<String> knownIdentifiers) {
+            final Set<String> knownIdentifiers,
+            final Map<String, List<String>> result) {
+
+        if (parameters.isEmpty()) {
+            return;
+        }
 
         final List<String> matched = new ArrayList<>();
-        final String[] params = paramList.split(",");
 
-        for (final String param : params) {
-            final String typeName = extractTypeName(param.trim());
+        for (final Parameter param : parameters) {
+            final String typeName = extractSimpleTypeName(param);
             if (typeName == null || typeName.isEmpty()) {
                 continue;
             }
@@ -557,37 +460,19 @@ public class JavaSourceParser extends SourceParser {
             }
         }
 
-        return matched;
+        if (!matched.isEmpty()) {
+            result.put(name, matched);
+        }
     }
 
     /**
-     * Extracts the simple type name from a parameter declaration.
+     * Extracts the simple type name from a JavaParser Parameter node.
      *
-     * <p>Handles annotations, final modifier, generics (stripping them),
-     * and varargs.</p>
+     * <p>Strips generic parameters, array brackets, and varargs to
+     * return the raw type name.</p>
      */
-    private String extractTypeName(final String paramDecl) {
-        if (paramDecl.isEmpty()) {
-            return null;
-        }
-
-        // Split into tokens
-        final String[] tokens = paramDecl.split("\\s+");
-        String typeName = null;
-
-        for (final String token : tokens) {
-            // Skip annotations and 'final'
-            if (token.startsWith("@") || "final".equals(token)) {
-                continue;
-            }
-            // First non-annotation, non-final token is the type
-            typeName = token;
-            break;
-        }
-
-        if (typeName == null) {
-            return null;
-        }
+    private String extractSimpleTypeName(final Parameter param) {
+        String typeName = param.getTypeAsString();
 
         // Strip generics: List<Foo> -> List
         final int genericIdx = typeName.indexOf('<');
@@ -605,7 +490,7 @@ public class JavaSourceParser extends SourceParser {
             typeName = typeName.substring(0, typeName.length() - 2);
         }
 
-        return typeName;
+        return typeName.isBlank() ? null : typeName;
     }
 
     /**
@@ -639,98 +524,111 @@ public class JavaSourceParser extends SourceParser {
     }
 
     /**
-     * Extracts the package name from the source file lines.
+     * Resolves an import declaration to the FQCN it represents.
+     *
+     * <p>For regular imports, returns the fully qualified name directly.
+     * For static imports, extracts the class portion (stripping the
+     * member name). Skips wildcard imports.</p>
      */
-    private String extractPackage(final List<String> lines) {
-        for (final String line : lines) {
-            final String trimmed = line.trim();
-            if (trimmed.startsWith("package ") && trimmed.endsWith(";")) {
-                return trimmed.substring("package ".length(),
-                        trimmed.length() - 1).trim();
-            }
+    private String resolveImportIdentifier(final ImportDeclaration imp) {
+        if (imp.isAsterisk()) {
+            return null;
+        }
+
+        if (imp.isStatic()) {
+            return extractStaticImportClass(imp);
+        }
+
+        return imp.getNameAsString();
+    }
+
+    /**
+     * Extracts the class portion from a static import.
+     *
+     * <p>For {@code import static co.fanki.Constants.VALUE}, returns
+     * {@code co.fanki.Constants}.</p>
+     */
+    private String extractStaticImportClass(final ImportDeclaration imp) {
+        final String fullName = imp.getNameAsString();
+        final int lastDot = fullName.lastIndexOf('.');
+        if (lastDot > 0) {
+            return fullName.substring(0, lastDot);
         }
         return null;
     }
 
     /**
-     * Builds a map from simple class names to FQCNs based on import
-     * statements in the source file.
+     * Extracts the path value from a mapping annotation.
+     *
+     * <p>Handles both single-member annotations
+     * ({@code @GetMapping("/path")}) and normal annotations
+     * ({@code @GetMapping(value = "/path")}).</p>
      */
-    private Map<String, String> buildImportMap(final List<String> lines) {
-        final Map<String, String> importMap = new HashMap<>();
+    private String extractAnnotationPath(final AnnotationExpr ann) {
+        if (ann instanceof SingleMemberAnnotationExpr single) {
+            return stripQuotes(single.getMemberValue().toString());
+        }
 
-        for (final String line : lines) {
-            final String trimmed = line.trim();
-
-            if (isClassDeclaration(trimmed)) {
-                break;
-            }
-
-            final String fqcn = parseImportLine(trimmed);
-            if (fqcn != null) {
-                final int lastDot = fqcn.lastIndexOf('.');
-                if (lastDot > 0) {
-                    final String simpleName = fqcn.substring(lastDot + 1);
-                    importMap.put(simpleName, fqcn);
+        if (ann instanceof NormalAnnotationExpr normal) {
+            for (final MemberValuePair pair : normal.getPairs()) {
+                if ("value".equals(pair.getNameAsString())
+                        || "path".equals(pair.getNameAsString())) {
+                    return stripQuotes(pair.getValue().toString());
                 }
             }
         }
 
-        return importMap;
+        return null;
     }
 
     /**
-     * Parses an import line to extract the fully-qualified class name.
+     * Extracts the HTTP method from a @RequestMapping annotation.
      *
-     * @param importLine the import statement
-     * @return the FQCN, or null if not parseable or a wildcard import
+     * <p>Looks for method = RequestMethod.XXX in the annotation pairs.
+     * Defaults to GET if no method attribute is found.</p>
      */
-    String parseImportLine(final String importLine) {
-        if (importLine == null || !importLine.startsWith("import ")) {
-            return null;
-        }
-
-        String line = importLine.substring("import ".length()).trim();
-
-        // Handle static imports
-        final boolean isStatic = line.startsWith("static ");
-        if (isStatic) {
-            line = line.substring("static ".length()).trim();
-        }
-
-        // Remove trailing semicolon and whitespace
-        if (line.endsWith(";")) {
-            line = line.substring(0, line.length() - 1).trim();
-        }
-
-        // Skip wildcard imports
-        if (line.endsWith(".*")) {
-            return null;
-        }
-
-        // For static imports, extract the class part (before the last dot)
-        if (isStatic) {
-            final int lastDot = line.lastIndexOf('.');
-            if (lastDot > 0) {
-                line = line.substring(0, lastDot);
+    private String extractRequestMappingMethod(final AnnotationExpr ann) {
+        if (ann instanceof NormalAnnotationExpr normal) {
+            for (final MemberValuePair pair : normal.getPairs()) {
+                if ("method".equals(pair.getNameAsString())) {
+                    final String value = pair.getValue().toString();
+                    // Extract method from RequestMethod.POST, etc.
+                    final int dotIdx = value.lastIndexOf('.');
+                    if (dotIdx >= 0) {
+                        return value.substring(dotIdx + 1);
+                    }
+                    return value;
+                }
             }
         }
-
-        return line.isBlank() ? null : line;
+        return "GET";
     }
 
     /**
-     * Checks if a line starts a class, interface, enum, or record declaration.
+     * Strips surrounding double quotes from a string value.
      */
-    private boolean isClassDeclaration(final String line) {
-        if (line.startsWith("//") || line.startsWith("*")
-                || line.startsWith("/*")) {
-            return false;
+    private String stripQuotes(final String value) {
+        if (value != null && value.length() >= 2
+                && value.startsWith("\"") && value.endsWith("\"")) {
+            return value.substring(1, value.length() - 1);
         }
-        return line.contains("class ")
-                || line.contains("interface ")
-                || line.contains("enum ")
-                || line.contains("record ");
+        return value;
+    }
+
+    /**
+     * Parses a Java source file into a JavaParser CompilationUnit.
+     *
+     * @param file the Java source file to parse
+     * @return the parsed compilation unit
+     * @throws IOException if parsing fails
+     */
+    private CompilationUnit parseFile(final Path file) throws IOException {
+        try {
+            return StaticJavaParser.parse(file);
+        } catch (final Exception e) {
+            LOG.warn("Failed to parse {}: {}", file, e.getMessage());
+            throw new IOException("Failed to parse " + file, e);
+        }
     }
 
 }

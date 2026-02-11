@@ -972,7 +972,11 @@ These operations are available via REST API (port 8080) but not as MCP tools. Se
 - SSH key (for private repos)
 - Anthropic API key
 
-### Build
+### Option A: Download the latest release
+
+Download the latest stable JAR from the [Releases page](https://github.com/waabox/domain-mcp-server/releases/latest).
+
+### Option B: Build from source
 
 ```bash
 mvn clean package -DskipTests

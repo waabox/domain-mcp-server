@@ -1142,7 +1142,22 @@ mvn clean package -DskipTests
 
 The MCP server connects to the same database as the REST API. Make sure PostgreSQL is running and the `domain_mcp` schema exists.
 
-### 3. Add to Claude Code MCP config
+### 3. Add to Claude Code
+
+**Option A: CLI (recommended)**
+
+```bash
+claude mcp add --transport stdio domain-mcp-server \
+  -e DATABASE_URL=jdbc:postgresql://localhost:5432/domain_mcp?currentSchema=domain_mcp \
+  -e DATABASE_USERNAME=postgres \
+  -e DATABASE_PASSWORD=postgres \
+  -- java --enable-preview -Dspring.profiles.active=mcp \
+  -jar /absolute/path/to/domain-mcp-server-1.0.1.jar
+```
+
+Use `--scope project` to add it only to the current project, or omit it for user-wide config.
+
+**Option B: Manual JSON config**
 
 Add this to your Claude Code MCP settings (`~/.claude/settings.json` or via `/settings` in Claude Code):
 
@@ -1155,7 +1170,7 @@ Add this to your Claude Code MCP settings (`~/.claude/settings.json` or via `/se
         "--enable-preview",
         "-Dspring.profiles.active=mcp",
         "-jar",
-        "/absolute/path/to/domain-mcp-server/target/domain-mcp-server-1.0.1.jar"
+        "/absolute/path/to/domain-mcp-server-1.0.1.jar"
       ],
       "env": {
         "DATABASE_URL": "jdbc:postgresql://localhost:5432/domain_mcp?currentSchema=domain_mcp",
@@ -1167,7 +1182,7 @@ Add this to your Claude Code MCP settings (`~/.claude/settings.json` or via `/se
 }
 ```
 
-Replace `/absolute/path/to/` with the actual path to the project on your machine. Note that only database credentials are needed — the MCP server reads from the same PostgreSQL database populated by the [analysis service](#indexing-projects).
+Replace `/absolute/path/to/` with the actual path to the JAR on your machine. Only database credentials are needed — the MCP server reads from the same PostgreSQL database populated by the [analysis service](#indexing-projects).
 
 ### 4. Verify the connection
 

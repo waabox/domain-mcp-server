@@ -39,23 +39,6 @@ public class McpStdioServerConfiguration {
     private static final Logger LOG = LoggerFactory.getLogger(
             McpStdioServerConfiguration.class);
 
-    private static final String ANALYZE_PROJECT_SCHEMA = """
-            {
-              "type": "object",
-              "properties": {
-                "repositoryUrl": {
-                  "type": "string",
-                  "description": "The git repository URL to analyze"
-                },
-                "branch": {
-                  "type": "string",
-                  "description": "The branch to analyze (defaults to main)"
-                }
-              },
-              "required": ["repositoryUrl"]
-            }
-            """;
-
     private static final String LIST_PROJECTS_SCHEMA = """
             {
               "type": "object",
@@ -70,6 +53,10 @@ public class McpStdioServerConfiguration {
                 "className": {
                   "type": "string",
                   "description": "The fully qualified class name"
+                },
+                "projectName": {
+                  "type": "string",
+                  "description": "Optional: scope the search to this project (as returned by list_projects)"
                 }
               },
               "required": ["className"]
@@ -87,9 +74,73 @@ public class McpStdioServerConfiguration {
                 "methodName": {
                   "type": "string",
                   "description": "The method name"
+                },
+                "projectName": {
+                  "type": "string",
+                  "description": "Optional: scope the search to this project (as returned by list_projects)"
                 }
               },
               "required": ["className", "methodName"]
+            }
+            """;
+
+    private static final String GET_CLASS_DEPENDENCIES_SCHEMA = """
+            {
+              "type": "object",
+              "properties": {
+                "className": {
+                  "type": "string",
+                  "description": "The fully qualified class name"
+                },
+                "projectName": {
+                  "type": "string",
+                  "description": "Optional: scope the search to this project (as returned by list_projects)"
+                }
+              },
+              "required": ["className"]
+            }
+            """;
+
+    private static final String SEARCH_PROJECT_SCHEMA = """
+            {
+              "type": "object",
+              "properties": {
+                "projectName": {
+                  "type": "string",
+                  "description": "The project name as returned by list_projects"
+                },
+                "query": {
+                  "type": "string",
+                  "description": "Partial class name or keyword to search for (case-insensitive)"
+                }
+              },
+              "required": ["projectName", "query"]
+            }
+            """;
+
+    private static final String GET_PROJECT_OVERVIEW_SCHEMA = """
+            {
+              "type": "object",
+              "properties": {
+                "projectName": {
+                  "type": "string",
+                  "description": "The project name as returned by list_projects"
+                }
+              },
+              "required": ["projectName"]
+            }
+            """;
+
+    private static final String GET_SERVICE_API_SCHEMA = """
+            {
+              "type": "object",
+              "properties": {
+                "projectName": {
+                  "type": "string",
+                  "description": "The project name as returned by list_projects"
+                }
+              },
+              "required": ["projectName"]
             }
             """;
 
@@ -157,13 +208,16 @@ public class McpStdioServerConfiguration {
                         .build())
                 .build();
 
-        server.addTool(analyzeProjectTool(codeContextService, objectMapper));
         server.addTool(listProjectsTool(codeContextService, objectMapper));
         server.addTool(getClassContextTool(codeContextService, objectMapper));
         server.addTool(getMethodContextTool(codeContextService, objectMapper));
         server.addTool(getStackTraceContextTool(codeContextService, objectMapper));
+        server.addTool(getClassDependenciesTool(codeContextService, objectMapper));
+        server.addTool(getProjectOverviewTool(codeContextService, objectMapper));
+        server.addTool(getServiceApiTool(codeContextService, objectMapper));
+        server.addTool(searchProjectTool(codeContextService, objectMapper));
 
-        LOG.info("MCP stdio server initialized with 5 tools");
+        LOG.info("MCP stdio server initialized with 8 tools");
 
         return server;
     }
@@ -179,38 +233,6 @@ public class McpStdioServerConfiguration {
             LOG.info("MCP stdio server is running. Waiting for input...");
             new CountDownLatch(1).await();
         };
-    }
-
-    private McpServerFeatures.SyncToolSpecification analyzeProjectTool(
-            final CodeContextService codeContextService,
-            final ObjectMapper objectMapper) {
-
-        return new McpServerFeatures.SyncToolSpecification(
-                new Tool("analyze_project",
-                        "Analyze a git repository and extract class/method"
-                                + " information. Run this first to index a"
-                                + " project before using get_class_context,"
-                                + " get_method_context, or"
-                                + " get_stack_trace_context. Required for"
-                                + " Datadog error correlation. Also reads"
-                                + " README.md to generate a project"
-                                + " description for richer context.",
-                        ANALYZE_PROJECT_SCHEMA),
-                (exchange, arguments) -> {
-                    final String repositoryUrl =
-                            (String) arguments.get("repositoryUrl");
-                    final String branch =
-                            (String) arguments.get("branch");
-
-                    try {
-                        final var result = codeContextService
-                                .analyzeProject(repositoryUrl, branch);
-                        return toCallToolResult(objectMapper, result);
-                    } catch (final Exception e) {
-                        return errorResult(e);
-                    }
-                }
-        );
     }
 
     private McpServerFeatures.SyncToolSpecification listProjectsTool(
@@ -253,10 +275,12 @@ public class McpStdioServerConfiguration {
                 (exchange, arguments) -> {
                     final String className =
                             (String) arguments.get("className");
+                    final String projectName =
+                            (String) arguments.get("projectName");
 
                     try {
                         final var result = codeContextService
-                                .getClassContext(className);
+                                .getClassContext(className, projectName);
                         return toCallToolResult(objectMapper, result);
                     } catch (final Exception e) {
                         return errorResult(e);
@@ -284,10 +308,13 @@ public class McpStdioServerConfiguration {
                             (String) arguments.get("className");
                     final String methodName =
                             (String) arguments.get("methodName");
+                    final String projectName =
+                            (String) arguments.get("projectName");
 
                     try {
                         final var result = codeContextService
-                                .getMethodContext(className, methodName);
+                                .getMethodContext(className, methodName,
+                                        projectName);
                         return toCallToolResult(objectMapper, result);
                     } catch (final Exception e) {
                         return errorResult(e);
@@ -335,6 +362,128 @@ public class McpStdioServerConfiguration {
 
                         final var result = codeContextService
                                 .getStackTraceContext(frames);
+                        return toCallToolResult(objectMapper, result);
+                    } catch (final Exception e) {
+                        return errorResult(e);
+                    }
+                }
+        );
+    }
+
+    private McpServerFeatures.SyncToolSpecification getClassDependenciesTool(
+            final CodeContextService codeContextService,
+            final ObjectMapper objectMapper) {
+
+        return new McpServerFeatures.SyncToolSpecification(
+                new Tool("get_class_dependencies",
+                        "Get the dependency graph around a class."
+                                + " Returns what this class imports"
+                                + " (dependencies), what imports it"
+                                + " (dependents), and method parameter"
+                                + " types. Use this to understand how a"
+                                + " class connects to the rest of the"
+                                + " system.",
+                        GET_CLASS_DEPENDENCIES_SCHEMA),
+                (exchange, arguments) -> {
+                    final String className =
+                            (String) arguments.get("className");
+                    final String projectName =
+                            (String) arguments.get("projectName");
+
+                    try {
+                        final var result = codeContextService
+                                .getClassDependencies(className,
+                                        projectName);
+                        return toCallToolResult(objectMapper, result);
+                    } catch (final Exception e) {
+                        return errorResult(e);
+                    }
+                }
+        );
+    }
+
+    private McpServerFeatures.SyncToolSpecification getProjectOverviewTool(
+            final CodeContextService codeContextService,
+            final ObjectMapper objectMapper) {
+
+        return new McpServerFeatures.SyncToolSpecification(
+                new Tool("get_project_overview",
+                        "Get a structural overview of an indexed"
+                                + " project. Returns entry points"
+                                + " (controllers, listeners), HTTP"
+                                + " endpoints, class type breakdown, and"
+                                + " project description. Use this to"
+                                + " understand the architecture before"
+                                + " drilling into specific classes.",
+                        GET_PROJECT_OVERVIEW_SCHEMA),
+                (exchange, arguments) -> {
+                    final String projectName =
+                            (String) arguments.get("projectName");
+
+                    try {
+                        final var result = codeContextService
+                                .getProjectOverview(projectName);
+                        return toCallToolResult(objectMapper, result);
+                    } catch (final Exception e) {
+                        return errorResult(e);
+                    }
+                }
+        );
+    }
+
+    private McpServerFeatures.SyncToolSpecification getServiceApiTool(
+            final CodeContextService codeContextService,
+            final ObjectMapper objectMapper) {
+
+        return new McpServerFeatures.SyncToolSpecification(
+                new Tool("get_service_api",
+                        "Get the public API surface of an indexed"
+                                + " microservice. Returns all HTTP"
+                                + " endpoints grouped by controller,"
+                                + " with parameter types (DTOs),"
+                                + " descriptions, business logic, and"
+                                + " exceptions. Use this when you need"
+                                + " to integrate with or call another"
+                                + " microservice.",
+                        GET_SERVICE_API_SCHEMA),
+                (exchange, arguments) -> {
+                    final String projectName =
+                            (String) arguments.get("projectName");
+
+                    try {
+                        final var result = codeContextService
+                                .getServiceApi(projectName);
+                        return toCallToolResult(objectMapper, result);
+                    } catch (final Exception e) {
+                        return errorResult(e);
+                    }
+                }
+        );
+    }
+
+    private McpServerFeatures.SyncToolSpecification searchProjectTool(
+            final CodeContextService codeContextService,
+            final ObjectMapper objectMapper) {
+
+        return new McpServerFeatures.SyncToolSpecification(
+                new Tool("search_project",
+                        "Search for classes within a specific project"
+                                + " by partial name. Returns matching"
+                                + " classes with their type, description,"
+                                + " entry point status, and source file."
+                                + " Use this to discover classes in a"
+                                + " project when you don't know the exact"
+                                + " fully qualified name.",
+                        SEARCH_PROJECT_SCHEMA),
+                (exchange, arguments) -> {
+                    final String projectName =
+                            (String) arguments.get("projectName");
+                    final String query =
+                            (String) arguments.get("query");
+
+                    try {
+                        final var result = codeContextService
+                                .searchProject(projectName, query);
                         return toCallToolResult(objectMapper, result);
                     } catch (final Exception e) {
                         return errorResult(e);

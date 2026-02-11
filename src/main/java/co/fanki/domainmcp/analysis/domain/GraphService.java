@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Loads all project graphs at application startup and provides
  * fast lookup for query-time neighbor resolution. Graphs are keyed
- * by project ID.</p>
+ * by project ID, with a secondary index by project name.</p>
  *
  * @author waabox(emiliano[at]fanki[dot]co)
  */
@@ -28,6 +28,9 @@ public class GraphService {
             GraphService.class);
 
     private final Map<String, ProjectGraph> graphs =
+            new ConcurrentHashMap<>();
+
+    private final Map<String, String> nameToId =
             new ConcurrentHashMap<>();
 
     private final ProjectRepository projectRepository;
@@ -56,6 +59,7 @@ public class GraphService {
                 final ProjectGraph graph = ProjectGraph.fromJson(
                         project.graphData());
                 graphs.put(project.id(), graph);
+                nameToId.put(project.name(), project.id());
                 LOG.debug("Loaded graph for project {} ({} nodes)",
                         project.name(), graph.nodeCount());
             } catch (final Exception e) {
@@ -89,6 +93,7 @@ public class GraphService {
                     final ProjectGraph graph = ProjectGraph.fromJson(
                             project.graphData());
                     graphs.put(project.id(), graph);
+                    nameToId.put(project.name(), project.id());
                     LOG.info("Reloaded graph for project {} ({} nodes)",
                             project.name(), graph.nodeCount());
                 } catch (final Exception e) {
@@ -103,10 +108,37 @@ public class GraphService {
      * Puts a graph directly into the cache (used after analysis).
      *
      * @param projectId the project ID
+     * @param projectName the project name for name-based lookup
      * @param graph the project graph
      */
-    public void put(final String projectId, final ProjectGraph graph) {
+    public void put(final String projectId, final String projectName,
+            final ProjectGraph graph) {
         graphs.put(projectId, graph);
+        nameToId.put(projectName, projectId);
+    }
+
+    /**
+     * Returns the graph for a given project name.
+     *
+     * @param projectName the project name
+     * @return the project graph, or null if not cached
+     */
+    public ProjectGraph getGraphByProjectName(final String projectName) {
+        final String projectId = nameToId.get(projectName);
+        if (projectId == null) {
+            return null;
+        }
+        return graphs.get(projectId);
+    }
+
+    /**
+     * Returns the project ID for a given project name.
+     *
+     * @param projectName the project name
+     * @return the project ID, or null if not found
+     */
+    public String getProjectIdByName(final String projectName) {
+        return nameToId.get(projectName);
     }
 
 }

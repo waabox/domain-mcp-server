@@ -51,6 +51,13 @@ public class SourceClassRepository {
             WHERE project_id = :projectId
             """;
 
+    /** Find source class by project ID and full class name. */
+    public static final String FIND_BY_PROJECT_ID_AND_FULL_CLASS_NAME = """
+            SELECT * FROM source_classes
+            WHERE project_id = :projectId
+              AND full_class_name = :fullClassName
+            """;
+
     private final Jdbi jdbi;
 
     /**
@@ -72,10 +79,10 @@ public class SourceClassRepository {
         jdbi.useHandle(handle -> handle.createUpdate("""
                 INSERT INTO source_classes (
                     id, project_id, full_class_name, simple_name, package_name,
-                    class_type, description, source_file, created_at
+                    class_type, description, source_file, commit_hash, created_at
                 ) VALUES (
                     :id, :projectId, :fullClassName, :simpleName, :packageName,
-                    :classType, :description, :sourceFile, :createdAt
+                    :classType, :description, :sourceFile, :commitHash, :createdAt
                 )
                 """)
                 .bind("id", sourceClass.id())
@@ -86,6 +93,7 @@ public class SourceClassRepository {
                 .bind("classType", sourceClass.classType().name())
                 .bind("description", sourceClass.description())
                 .bind("sourceFile", sourceClass.sourceFile())
+                .bind("commitHash", sourceClass.commitHash())
                 .bind("createdAt", toTimestamp(sourceClass.createdAt()))
                 .execute());
     }
@@ -103,10 +111,10 @@ public class SourceClassRepository {
             final var batch = handle.prepareBatch("""
                     INSERT INTO source_classes (
                         id, project_id, full_class_name, simple_name, package_name,
-                        class_type, description, source_file, created_at
+                        class_type, description, source_file, commit_hash, created_at
                     ) VALUES (
                         :id, :projectId, :fullClassName, :simpleName, :packageName,
-                        :classType, :description, :sourceFile, :createdAt
+                        :classType, :description, :sourceFile, :commitHash, :createdAt
                     )
                     """);
             for (final SourceClass sc : sourceClasses) {
@@ -118,6 +126,7 @@ public class SourceClassRepository {
                         .bind("classType", sc.classType().name())
                         .bind("description", sc.description())
                         .bind("sourceFile", sc.sourceFile())
+                        .bind("commitHash", sc.commitHash())
                         .bind("createdAt", toTimestamp(sc.createdAt()))
                         .add();
             }
@@ -183,6 +192,23 @@ public class SourceClassRepository {
     }
 
     /**
+     * Finds a source class by project ID and full class name.
+     *
+     * @param projectId the project ID
+     * @param fullClassName the fully qualified class name
+     * @return the source class if found
+     */
+    public Optional<SourceClass> findByProjectIdAndFullClassName(
+            final String projectId, final String fullClassName) {
+        return jdbi.withHandle(handle -> handle
+                .createQuery(FIND_BY_PROJECT_ID_AND_FULL_CLASS_NAME)
+                .bind("projectId", projectId)
+                .bind("fullClassName", fullClassName)
+                .map(new SourceClassRowMapper())
+                .findOne());
+    }
+
+    /**
      * Counts the number of source classes for a project.
      *
      * @param projectId the project ID
@@ -222,6 +248,27 @@ public class SourceClassRepository {
     }
 
     /**
+     * Updates the commit hash for a source class.
+     *
+     * <p>Used during graph rebuild to backfill commit hashes for
+     * classes that were analyzed before commit hash tracking was added.</p>
+     *
+     * @param id the source class ID
+     * @param commitHash the git commit hash
+     */
+    public void updateCommitHash(final String id,
+            final String commitHash) {
+        jdbi.useHandle(handle -> handle.createUpdate("""
+                UPDATE source_classes
+                SET commit_hash = :commitHash
+                WHERE id = :id
+                """)
+                .bind("id", id)
+                .bind("commitHash", commitHash)
+                .execute());
+    }
+
+    /**
      * Deletes all source classes for a project.
      *
      * @param projectId the project ID
@@ -234,6 +281,30 @@ public class SourceClassRepository {
                         """)
                 .bind("projectId", projectId)
                 .execute());
+    }
+
+    /**
+     * Finds source classes with missing enrichment (no description) for
+     * a project.
+     *
+     * <p>Used by Phase 3 recovery to identify classes where Claude
+     * enrichment failed or was skipped.</p>
+     *
+     * @param projectId the project ID
+     * @return list of unenriched source classes
+     */
+    public List<SourceClass> findUnenrichedByProjectId(
+            final String projectId) {
+        return jdbi.withHandle(handle -> handle
+                .createQuery("""
+                        SELECT * FROM source_classes
+                        WHERE project_id = :projectId
+                          AND description IS NULL
+                        ORDER BY full_class_name
+                        """)
+                .bind("projectId", projectId)
+                .map(new SourceClassRowMapper())
+                .list());
     }
 
     /**
@@ -265,11 +336,12 @@ public class SourceClassRepository {
             final ClassType classType = ClassType.valueOf(rs.getString("class_type"));
             final String description = rs.getString("description");
             final String sourceFile = rs.getString("source_file");
+            final String commitHash = rs.getString("commit_hash");
             final Instant createdAt = rs.getTimestamp("created_at").toInstant();
 
             return SourceClass.reconstitute(
                     id, projectId, fullClassName, simpleName, packageName,
-                    classType, description, sourceFile, createdAt);
+                    classType, description, sourceFile, commitHash, createdAt);
         }
     }
 

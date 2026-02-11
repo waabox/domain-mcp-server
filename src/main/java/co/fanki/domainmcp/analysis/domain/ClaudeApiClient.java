@@ -37,7 +37,7 @@ public class ClaudeApiClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private static final long MAX_TOKENS = 4096L;
+    private static final long MAX_TOKENS = 16384L;
 
     private static final String ANALYSIS_PROMPT_TEMPLATE = """
             You are analyzing a single %s source file from a project.
@@ -120,7 +120,7 @@ public class ClaudeApiClient {
             char }.
             """;
 
-    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(120);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(240);
 
     private static final int DEFAULT_MAX_RETRIES = 2;
 
@@ -200,8 +200,9 @@ public class ClaudeApiClient {
             return parseResponse(rawContent, fullClassName, sourceFile);
 
         } catch (final Exception e) {
-            LOG.error("Claude API call failed for {}: {}",
-                    fullClassName, e.getMessage());
+            LOG.error("Claude API call failed for {} [{}]: {}",
+                    fullClassName, e.getClass().getSimpleName(),
+                    e.getMessage(), e);
             return ClassAnalysisResult.failure(fullClassName, sourceFile,
                     e.getMessage());
         }
@@ -319,8 +320,9 @@ public class ClaudeApiClient {
             return parseEnrichmentResponse(rawContent, input.fullClassName());
 
         } catch (final Exception e) {
-            LOG.error("Claude API enrichment failed for {}: {}",
-                    input.fullClassName(), e.getMessage());
+            LOG.error("Claude API enrichment failed for {} [{}]: {}",
+                    input.fullClassName(), e.getClass().getSimpleName(),
+                    e.getMessage(), e);
             return EnrichmentResult.failure(input.fullClassName(),
                     e.getMessage());
         }
@@ -387,44 +389,56 @@ public class ClaudeApiClient {
 
     /**
      * Parses the Claude API enrichment response into a structured result.
+     *
+     * <p>If the initial parse fails (typically due to truncated JSON from
+     * hitting the max_tokens limit), attempts to repair the JSON by closing
+     * unclosed brackets and braces before retrying.</p>
      */
     private EnrichmentResult parseEnrichmentResponse(
             final String rawContent,
             final String fullClassName) {
 
+        final String json = extractJson(rawContent);
+
+        JsonNode root;
         try {
-            final String json = extractJson(rawContent);
-            final JsonNode root = MAPPER.readTree(json);
-
-            final String description = getTextOrDefault(root,
-                    "description", "");
-            final String classTypeCorrection = getTextOrNull(root,
-                    "classTypeCorrection");
-
-            final List<MethodEnrichment> methods = new ArrayList<>();
-            final JsonNode methodsNode = root.get("methods");
-
-            if (methodsNode != null && methodsNode.isArray()) {
-                for (final JsonNode methodNode : methodsNode) {
-                    methods.add(new MethodEnrichment(
-                            getTextOrDefault(methodNode,
-                                    "methodName", "unknown"),
-                            getTextOrDefault(methodNode,
-                                    "description", ""),
-                            parseStringList(methodNode.get("businessLogic"))
-                    ));
-                }
-            }
-
-            return EnrichmentResult.success(fullClassName, description,
-                    classTypeCorrection, methods);
-
+            root = MAPPER.readTree(json);
         } catch (final JsonProcessingException e) {
-            LOG.warn("Failed to parse enrichment response for {}: {}",
-                    fullClassName, e.getMessage());
-            return EnrichmentResult.failure(fullClassName,
-                    "JSON parse error: " + e.getMessage());
+            final String repaired = repairTruncatedJson(json);
+            try {
+                root = MAPPER.readTree(repaired);
+                LOG.warn("Repaired truncated JSON response for {},"
+                        + " some methods may be missing", fullClassName);
+            } catch (final JsonProcessingException e2) {
+                LOG.warn("Failed to parse enrichment response for {}: {}",
+                        fullClassName, e.getMessage());
+                return EnrichmentResult.failure(fullClassName,
+                        "JSON parse error: " + e.getMessage());
+            }
         }
+
+        final String description = getTextOrDefault(root,
+                "description", "");
+        final String classTypeCorrection = getTextOrNull(root,
+                "classTypeCorrection");
+
+        final List<MethodEnrichment> methods = new ArrayList<>();
+        final JsonNode methodsNode = root.get("methods");
+
+        if (methodsNode != null && methodsNode.isArray()) {
+            for (final JsonNode methodNode : methodsNode) {
+                methods.add(new MethodEnrichment(
+                        getTextOrDefault(methodNode,
+                                "methodName", "unknown"),
+                        getTextOrDefault(methodNode,
+                                "description", ""),
+                        parseStringList(methodNode.get("businessLogic"))
+                ));
+            }
+        }
+
+        return EnrichmentResult.success(fullClassName, description,
+                classTypeCorrection, methods);
     }
 
     /**
@@ -500,39 +514,51 @@ public class ClaudeApiClient {
 
     /**
      * Parses the Claude API response into a structured result.
+     *
+     * <p>If the initial parse fails (typically due to truncated JSON from
+     * hitting the max_tokens limit), attempts to repair the JSON by closing
+     * unclosed brackets and braces before retrying.</p>
      */
     private ClassAnalysisResult parseResponse(
             final String rawContent,
             final String fullClassName,
             final String sourceFile) {
 
+        final String json = extractJson(rawContent);
+
+        JsonNode root;
         try {
-            final String json = extractJson(rawContent);
-            final JsonNode root = MAPPER.readTree(json);
-
-            final String classType = getTextOrDefault(root,
-                    "classType", "OTHER");
-            final String description = getTextOrDefault(root,
-                    "description", "");
-
-            final List<MethodAnalysisResult> methods = new ArrayList<>();
-            final JsonNode methodsNode = root.get("methods");
-
-            if (methodsNode != null && methodsNode.isArray()) {
-                for (final JsonNode methodNode : methodsNode) {
-                    methods.add(parseMethod(methodNode));
-                }
-            }
-
-            return ClassAnalysisResult.success(
-                    fullClassName, classType, description, sourceFile, methods);
-
+            root = MAPPER.readTree(json);
         } catch (final JsonProcessingException e) {
-            LOG.warn("Failed to parse response for {}: {}",
-                    fullClassName, e.getMessage());
-            return ClassAnalysisResult.failure(fullClassName, sourceFile,
-                    "JSON parse error: " + e.getMessage());
+            final String repaired = repairTruncatedJson(json);
+            try {
+                root = MAPPER.readTree(repaired);
+                LOG.warn("Repaired truncated JSON response for {},"
+                        + " some methods may be missing", fullClassName);
+            } catch (final JsonProcessingException e2) {
+                LOG.warn("Failed to parse response for {}: {}",
+                        fullClassName, e.getMessage());
+                return ClassAnalysisResult.failure(fullClassName, sourceFile,
+                        "JSON parse error: " + e.getMessage());
+            }
         }
+
+        final String classType = getTextOrDefault(root,
+                "classType", "OTHER");
+        final String description = getTextOrDefault(root,
+                "description", "");
+
+        final List<MethodAnalysisResult> methods = new ArrayList<>();
+        final JsonNode methodsNode = root.get("methods");
+
+        if (methodsNode != null && methodsNode.isArray()) {
+            for (final JsonNode methodNode : methodsNode) {
+                methods.add(parseMethod(methodNode));
+            }
+        }
+
+        return ClassAnalysisResult.success(
+                fullClassName, classType, description, sourceFile, methods);
     }
 
     private MethodAnalysisResult parseMethod(final JsonNode node) {
@@ -574,6 +600,111 @@ public class ClaudeApiClient {
         }
 
         return cleaned;
+    }
+
+    /**
+     * Attempts to repair truncated JSON by closing unclosed brackets and
+     * braces.
+     *
+     * <p>When the Claude API hits the max_tokens limit, the JSON response
+     * is truncated mid-stream, leaving arrays and objects unclosed. This
+     * method finds the last structurally complete position (ignoring
+     * content inside string literals), truncates there, and appends the
+     * necessary closing characters.</p>
+     *
+     * @param json the potentially truncated JSON string
+     * @return the repaired JSON string, or the original if already valid
+     */
+    private String repairTruncatedJson(final String json) {
+        int braces = 0;
+        int brackets = 0;
+        boolean inString = false;
+        boolean escaped = false;
+        int lastCompleteClose = -1;
+
+        for (int i = 0; i < json.length(); i++) {
+            final char c = json.charAt(i);
+
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (c == '\\' && inString) {
+                escaped = true;
+                continue;
+            }
+            if (c == '"') {
+                inString = !inString;
+                continue;
+            }
+            if (inString) {
+                continue;
+            }
+
+            switch (c) {
+                case '{' -> braces++;
+                case '}' -> {
+                    braces--;
+                    lastCompleteClose = i;
+                }
+                case '[' -> brackets++;
+                case ']' -> {
+                    brackets--;
+                    lastCompleteClose = i;
+                }
+                default -> { }
+            }
+        }
+
+        if (braces == 0 && brackets == 0 && !inString) {
+            return json;
+        }
+
+        final String truncated = lastCompleteClose > 0
+                ? json.substring(0, lastCompleteClose + 1)
+                : json;
+
+        // Recount after truncation to determine what needs closing.
+        braces = 0;
+        brackets = 0;
+        inString = false;
+        escaped = false;
+
+        for (int i = 0; i < truncated.length(); i++) {
+            final char c = truncated.charAt(i);
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (c == '\\' && inString) {
+                escaped = true;
+                continue;
+            }
+            if (c == '"') {
+                inString = !inString;
+                continue;
+            }
+            if (inString) {
+                continue;
+            }
+            switch (c) {
+                case '{' -> braces++;
+                case '}' -> braces--;
+                case '[' -> brackets++;
+                case ']' -> brackets--;
+                default -> { }
+            }
+        }
+
+        final StringBuilder repaired = new StringBuilder(truncated);
+        for (int i = 0; i < brackets; i++) {
+            repaired.append(']');
+        }
+        for (int i = 0; i < braces; i++) {
+            repaired.append('}');
+        }
+
+        return repaired.toString();
     }
 
     private String getTextOrDefault(final JsonNode node, final String field,

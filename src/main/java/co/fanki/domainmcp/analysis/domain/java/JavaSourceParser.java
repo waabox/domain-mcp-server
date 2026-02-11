@@ -4,6 +4,7 @@ import co.fanki.domainmcp.analysis.domain.ClassType;
 import co.fanki.domainmcp.analysis.domain.SourceParser;
 import co.fanki.domainmcp.analysis.domain.StaticMethodInfo;
 
+import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
@@ -56,6 +57,12 @@ public class JavaSourceParser extends SourceParser {
 
     private static final Logger LOG = LoggerFactory.getLogger(
             JavaSourceParser.class);
+
+    static {
+        StaticJavaParser.getParserConfiguration()
+                .setLanguageLevel(
+                        ParserConfiguration.LanguageLevel.JAVA_21);
+    }
 
     private static final String SOURCE_ROOT = "src/main/java";
 

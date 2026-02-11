@@ -88,6 +88,33 @@ public abstract class SourceParser {
     protected abstract boolean isEntryPoint(Path file) throws IOException;
 
     /**
+     * Infers the {@link ClassType} from source annotations or decorators.
+     *
+     * <p>Statically determines the role of a class by scanning for
+     * framework annotations (e.g. Spring {@code @RestController},
+     * NestJS {@code @Controller}) without requiring any LLM analysis.</p>
+     *
+     * @param file the source file to analyze
+     * @return the inferred class type
+     * @throws IOException if file reading fails
+     */
+    public abstract ClassType inferClassType(Path file) throws IOException;
+
+    /**
+     * Extracts method declarations with line numbers and HTTP annotations.
+     *
+     * <p>Statically parses method/function declarations from the source
+     * file, capturing the method name, its line number, any HTTP endpoint
+     * mapping from annotations/decorators, and declared exceptions.</p>
+     *
+     * @param file the source file to analyze
+     * @return list of statically extracted method information
+     * @throws IOException if file reading fails
+     */
+    public abstract List<StaticMethodInfo> extractMethods(Path file)
+            throws IOException;
+
+    /**
      * Extracts method parameters from a source file, returning only
      * parameters whose type matches a known project identifier.
      *

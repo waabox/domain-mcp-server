@@ -81,6 +81,44 @@ public class ClaudeApiClient {
             The first character must be { and the last must be }.
             """;
 
+    private static final String ENRICHMENT_PROMPT_TEMPLATE = """
+            You are enriching a pre-analyzed %s source file with business \
+            context.
+
+            Project context (from README):
+            %s
+
+            Source code of %s:
+            ```%s
+            %s
+            ```
+
+            I already extracted this structural data:
+            - Class type: %s
+            - Methods: %s
+
+            Provide ONLY the business meaning. Return JSON:
+            {
+              "description": "Business-oriented description of this class",
+              "classTypeCorrection": "CORRECTED_TYPE or null if my \
+            inference is correct",
+              "methods": [
+                {
+                  "methodName": "existingMethodName",
+                  "description": "Business meaning, 1 sentence",
+                  "businessLogic": ["Step 1", "Step 2"]
+                }
+              ]
+            }
+
+            RULES:
+            1. Focus on BUSINESS meaning, not technical implementation.
+            2. Every method listed above must be included.
+            3. Only correct classType if my inference is clearly wrong.
+            4. YOUR RESPONSE MUST BE ONLY RAW JSON. First char { last \
+            char }.
+            """;
+
     private final AnthropicClient client;
 
     /**
@@ -207,6 +245,208 @@ public class ClaudeApiClient {
 
         return results;
     }
+
+    /**
+     * Enriches a single pre-analyzed class with business context from Claude.
+     *
+     * <p>Sends the source code along with the already-extracted structural
+     * data (class type, method names) and asks Claude only for business
+     * descriptions and logic steps.</p>
+     *
+     * @param input the enrichment input
+     * @param readmeContext the README content for project context
+     * @return the enrichment result
+     */
+    public EnrichmentResult enrichClass(
+            final EnrichmentInput input,
+            final String readmeContext) {
+
+        Preconditions.requireNonNull(input, "Enrichment input is required");
+
+        final String readme = readmeContext != null && !readmeContext.isBlank()
+                ? readmeContext : "No README available.";
+
+        final String methodNames = String.join(", ", input.methodNames());
+
+        final String prompt = String.format(ENRICHMENT_PROMPT_TEMPLATE,
+                input.language(), readme, input.fullClassName(),
+                input.language(), input.sourceCode(),
+                input.classType(), methodNames);
+
+        LOG.debug("Enriching class: {}", input.fullClassName());
+
+        try {
+            final MessageCreateParams params = MessageCreateParams.builder()
+                    .maxTokens(MAX_TOKENS)
+                    .addUserMessage(prompt)
+                    .model(Model.CLAUDE_SONNET_4_5_20250929)
+                    .build();
+
+            final Message response = client.messages().create(params);
+
+            final String rawContent = response.content().stream()
+                    .flatMap(block -> block.text().stream())
+                    .map(textBlock -> textBlock.text())
+                    .reduce("", String::concat);
+
+            return parseEnrichmentResponse(rawContent, input.fullClassName());
+
+        } catch (final Exception e) {
+            LOG.error("Claude API enrichment failed for {}: {}",
+                    input.fullClassName(), e.getMessage());
+            return EnrichmentResult.failure(input.fullClassName(),
+                    e.getMessage());
+        }
+    }
+
+    /**
+     * Enriches a batch of pre-analyzed classes concurrently using virtual
+     * threads.
+     *
+     * <p>Same concurrency pattern as {@link #analyzeBatch}: one virtual
+     * thread per class, failures are isolated per class.</p>
+     *
+     * @param inputs the batch of enrichment inputs
+     * @param readmeContext the README content for project context
+     * @return the list of enrichment results (one per input, same order)
+     */
+    public List<EnrichmentResult> enrichBatch(
+            final List<EnrichmentInput> inputs,
+            final String readmeContext) {
+
+        Preconditions.requireNonNull(inputs, "Inputs list is required");
+
+        if (inputs.isEmpty()) {
+            return List.of();
+        }
+
+        LOG.info("Enriching batch of {} classes concurrently", inputs.size());
+
+        final List<EnrichmentResult> results = new ArrayList<>(inputs.size());
+
+        try (final ExecutorService executor =
+                     Executors.newVirtualThreadPerTaskExecutor()) {
+
+            final List<Future<EnrichmentResult>> futures = new ArrayList<>(
+                    inputs.size());
+
+            for (final EnrichmentInput input : inputs) {
+                futures.add(executor.submit(
+                        () -> enrichClass(input, readmeContext)));
+            }
+
+            for (final Future<EnrichmentResult> future : futures) {
+                try {
+                    results.add(future.get());
+                } catch (final Exception e) {
+                    LOG.error("Unexpected error in enrichment batch: {}",
+                            e.getMessage());
+                    results.add(EnrichmentResult.failure(
+                            "unknown", e.getMessage()));
+                }
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * Parses the Claude API enrichment response into a structured result.
+     */
+    private EnrichmentResult parseEnrichmentResponse(
+            final String rawContent,
+            final String fullClassName) {
+
+        try {
+            final String json = extractJson(rawContent);
+            final JsonNode root = MAPPER.readTree(json);
+
+            final String description = getTextOrDefault(root,
+                    "description", "");
+            final String classTypeCorrection = getTextOrNull(root,
+                    "classTypeCorrection");
+
+            final List<MethodEnrichment> methods = new ArrayList<>();
+            final JsonNode methodsNode = root.get("methods");
+
+            if (methodsNode != null && methodsNode.isArray()) {
+                for (final JsonNode methodNode : methodsNode) {
+                    methods.add(new MethodEnrichment(
+                            getTextOrDefault(methodNode,
+                                    "methodName", "unknown"),
+                            getTextOrDefault(methodNode,
+                                    "description", ""),
+                            parseStringList(methodNode.get("businessLogic"))
+                    ));
+                }
+            }
+
+            return EnrichmentResult.success(fullClassName, description,
+                    classTypeCorrection, methods);
+
+        } catch (final JsonProcessingException e) {
+            LOG.warn("Failed to parse enrichment response for {}: {}",
+                    fullClassName, e.getMessage());
+            return EnrichmentResult.failure(fullClassName,
+                    "JSON parse error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Input for a single class enrichment.
+     *
+     * @param sourceCode the full source code
+     * @param fullClassName the fully-qualified class name
+     * @param language the programming language
+     * @param classType the statically inferred class type
+     * @param methodNames the method names extracted statically
+     */
+    public record EnrichmentInput(
+            String sourceCode,
+            String fullClassName,
+            String language,
+            String classType,
+            List<String> methodNames
+    ) {}
+
+    /**
+     * Result of enriching a single class with business context.
+     */
+    public record EnrichmentResult(
+            boolean success,
+            String fullClassName,
+            String description,
+            String classTypeCorrection,
+            List<MethodEnrichment> methods,
+            String errorMessage
+    ) {
+        /** Creates a successful enrichment result. */
+        public static EnrichmentResult success(
+                final String fullClassName,
+                final String description,
+                final String classTypeCorrection,
+                final List<MethodEnrichment> methods) {
+            return new EnrichmentResult(true, fullClassName, description,
+                    classTypeCorrection, methods, null);
+        }
+
+        /** Creates a failed enrichment result. */
+        public static EnrichmentResult failure(
+                final String fullClassName,
+                final String errorMessage) {
+            return new EnrichmentResult(false, fullClassName, null,
+                    null, List.of(), errorMessage);
+        }
+    }
+
+    /**
+     * Enrichment data for a single method.
+     */
+    public record MethodEnrichment(
+            String methodName,
+            String description,
+            List<String> businessLogic
+    ) {}
 
     /**
      * Input for a single class in a batch analysis.

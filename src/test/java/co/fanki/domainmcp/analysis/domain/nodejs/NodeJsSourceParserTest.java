@@ -1,6 +1,8 @@
 package co.fanki.domainmcp.analysis.domain.nodejs;
 
+import co.fanki.domainmcp.analysis.domain.ClassType;
 import co.fanki.domainmcp.analysis.domain.ProjectGraph;
+import co.fanki.domainmcp.analysis.domain.StaticMethodInfo;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -14,6 +16,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -789,6 +792,263 @@ class NodeJsSourceParserTest {
                 result.get("fetchData"));
     }
 
+    // -- inferClassType() --
+
+    @Test
+    void whenInferringClassType_givenNestJsController_shouldReturnController(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeSourceFile(sourceRoot, "controllers",
+                "user.controller.ts", """
+                import { Controller, Get } from '@nestjs/common';
+
+                @Controller('/users')
+                export class UserController {
+                    @Get()
+                    findAll() { return []; }
+                }
+                """);
+
+        assertEquals(ClassType.CONTROLLER, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenNestJsInjectable_shouldReturnService(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeSourceFile(sourceRoot, "services",
+                "user.service.ts", """
+                import { Injectable } from '@nestjs/common';
+
+                @Injectable()
+                export class UserService {
+                    findAll() { return []; }
+                }
+                """);
+
+        assertEquals(ClassType.SERVICE, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenExpressRoutes_shouldReturnController(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeSourceFile(sourceRoot, "routes",
+                "users.ts", """
+                import { Router } from 'express';
+                const router = Router();
+                router.get('/users', (req, res) => res.json([]));
+                export default router;
+                """);
+
+        assertEquals(ClassType.CONTROLLER, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenControllerFilename_shouldReturnController(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeSourceFile(sourceRoot, "",
+                "order.controller.ts", """
+                export class OrderController {
+                    create() { return {}; }
+                }
+                """);
+
+        assertEquals(ClassType.CONTROLLER, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenServiceFilename_shouldReturnService(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeSourceFile(sourceRoot, "",
+                "order.service.ts", """
+                export class OrderService {
+                    findAll() { return []; }
+                }
+                """);
+
+        assertEquals(ClassType.SERVICE, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenRepositoryFilename_shouldReturnRepository(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeSourceFile(sourceRoot, "",
+                "order.repository.ts", """
+                export class OrderRepository {
+                    findAll() { return []; }
+                }
+                """);
+
+        assertEquals(ClassType.REPOSITORY, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenEntityFilename_shouldReturnEntity(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeSourceFile(sourceRoot, "",
+                "order.entity.ts", """
+                export class Order {
+                    id: string;
+                    total: number;
+                }
+                """);
+
+        assertEquals(ClassType.ENTITY, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenPlainFile_shouldReturnOther(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeSourceFile(sourceRoot, "",
+                "utils.ts", """
+                export function helper() {
+                    return 42;
+                }
+                """);
+
+        assertEquals(ClassType.OTHER, parser.inferClassType(file));
+    }
+
+    // -- extractMethods() --
+
+    @Test
+    void whenExtractingMethods_givenSimpleFunctions_shouldReturnWithLineNumbers(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeSourceFile(sourceRoot, "",
+                "service.ts", """
+                export class UserService {
+                    findById(id: string) {
+                        return null;
+                    }
+
+                    createUser(name: string) {
+                        return { name };
+                    }
+                }
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertEquals(2, methods.size());
+        assertEquals("findById", methods.get(0).methodName());
+        assertEquals(2, methods.get(0).lineNumber());
+        assertEquals("createUser", methods.get(1).methodName());
+        assertEquals(6, methods.get(1).lineNumber());
+    }
+
+    @Test
+    void whenExtractingMethods_givenNestJsDecorators_shouldExtractHttpInfo(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeSourceFile(sourceRoot, "",
+                "user.controller.ts", """
+                import { Controller, Get, Post } from '@nestjs/common';
+
+                @Controller('/users')
+                export class UserController {
+
+                    @Get('/all')
+                    findAll() { return []; }
+
+                    @Post('/create')
+                    create(body: any) { return body; }
+                }
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertEquals(2, methods.size());
+
+        assertEquals("findAll", methods.get(0).methodName());
+        assertEquals("GET", methods.get(0).httpMethod());
+        assertEquals("/all", methods.get(0).httpPath());
+
+        assertEquals("create", methods.get(1).methodName());
+        assertEquals("POST", methods.get(1).httpMethod());
+        assertEquals("/create", methods.get(1).httpPath());
+    }
+
+    @Test
+    void whenExtractingMethods_givenAsyncFunction_shouldExtractIt(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeSourceFile(sourceRoot, "",
+                "api.service.ts", """
+                export class ApiService {
+                    async fetchData(url: string) {
+                        return fetch(url);
+                    }
+                }
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertEquals(1, methods.size());
+        assertEquals("fetchData", methods.get(0).methodName());
+        assertNull(methods.get(0).httpMethod());
+        assertTrue(methods.get(0).exceptions().isEmpty());
+    }
+
+    @Test
+    void whenExtractingMethods_givenKeywords_shouldExcludeThem(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeSourceFile(sourceRoot, "",
+                "processor.ts", """
+                export class Processor {
+                    process(data: string) {
+                        if (data) {
+                            for (const item of []) {
+                                while (true) {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertEquals(1, methods.size());
+        assertEquals("process", methods.get(0).methodName());
+    }
+
+    @Test
+    void whenExtractingMethods_givenNoMethods_shouldReturnEmpty(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeSourceFile(sourceRoot, "",
+                "constants.ts", """
+                export const API_URL = 'https://api.example.com';
+                export const MAX_RETRIES = 3;
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertTrue(methods.isEmpty());
+    }
+
     // -- Helper methods --
 
     private Path createSourceRoot(final Path projectRoot) throws IOException {
@@ -797,7 +1057,7 @@ class NodeJsSourceParserTest {
         return sourceRoot;
     }
 
-    private void writeSourceFile(final Path sourceRoot,
+    private Path writeSourceFile(final Path sourceRoot,
             final String subPath, final String fileName,
             final String content) throws IOException {
 
@@ -805,7 +1065,9 @@ class NodeJsSourceParserTest {
                 ? sourceRoot
                 : sourceRoot.resolve(subPath);
         Files.createDirectories(dir);
-        Files.writeString(dir.resolve(fileName), content);
+        final Path file = dir.resolve(fileName);
+        Files.writeString(file, content);
+        return file;
     }
 
 }

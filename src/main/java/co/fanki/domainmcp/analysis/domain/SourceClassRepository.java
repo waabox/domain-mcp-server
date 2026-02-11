@@ -197,6 +197,31 @@ public class SourceClassRepository {
     }
 
     /**
+     * Updates the enrichment data for a source class.
+     *
+     * <p>Used during Phase 2 of analysis to update the class with
+     * Claude-provided business descriptions and optionally correct
+     * the class type inferred during Phase 1.</p>
+     *
+     * @param id the source class ID
+     * @param classType the corrected class type
+     * @param description the business description from Claude
+     */
+    public void updateEnrichment(final String id,
+            final ClassType classType,
+            final String description) {
+        jdbi.useHandle(handle -> handle.createUpdate("""
+                UPDATE source_classes
+                SET class_type = :classType, description = :description
+                WHERE id = :id
+                """)
+                .bind("id", id)
+                .bind("classType", classType.name())
+                .bind("description", description)
+                .execute());
+    }
+
+    /**
      * Deletes all source classes for a project.
      *
      * @param projectId the project ID

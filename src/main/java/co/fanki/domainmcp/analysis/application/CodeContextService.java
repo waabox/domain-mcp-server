@@ -2,9 +2,9 @@ package co.fanki.domainmcp.analysis.application;
 
 import co.fanki.domainmcp.analysis.domain.ClassType;
 import co.fanki.domainmcp.analysis.domain.ClaudeApiClient;
-import co.fanki.domainmcp.analysis.domain.ClaudeApiClient.BatchClassInput;
-import co.fanki.domainmcp.analysis.domain.ClaudeApiClient.ClassAnalysisResult;
-import co.fanki.domainmcp.analysis.domain.ClaudeApiClient.MethodAnalysisResult;
+import co.fanki.domainmcp.analysis.domain.ClaudeApiClient.EnrichmentInput;
+import co.fanki.domainmcp.analysis.domain.ClaudeApiClient.EnrichmentResult;
+import co.fanki.domainmcp.analysis.domain.ClaudeApiClient.MethodEnrichment;
 import co.fanki.domainmcp.analysis.domain.MethodParameter;
 import co.fanki.domainmcp.analysis.domain.MethodParameterRepository;
 import co.fanki.domainmcp.analysis.domain.ProjectGraph;
@@ -14,6 +14,7 @@ import co.fanki.domainmcp.analysis.domain.SourceClassRepository;
 import co.fanki.domainmcp.analysis.domain.SourceMethod;
 import co.fanki.domainmcp.analysis.domain.SourceMethodRepository;
 import co.fanki.domainmcp.analysis.domain.SourceParser;
+import co.fanki.domainmcp.analysis.domain.StaticMethodInfo;
 import co.fanki.domainmcp.analysis.domain.java.JavaSourceParser;
 import co.fanki.domainmcp.analysis.domain.nodejs.NodeJsSourceParser;
 import co.fanki.domainmcp.project.domain.Project;
@@ -43,13 +44,19 @@ import java.util.Set;
 /**
  * Application service for code context operations.
  *
- * <p>Provides functionality to analyze projects using class-by-class
- * Claude API analysis and retrieve context about classes and methods
- * for Datadog stack trace correlation.</p>
+ * <p>Provides functionality to analyze projects using a two-phase
+ * pipeline and retrieve context about classes and methods for Datadog
+ * stack trace correlation.</p>
  *
- * <p>Analysis flow: Clone (JGit) -> Read README -> Parse imports ->
- * Build graph -> Analyze class-by-class (Claude API) -> Persist graph
- * + results.</p>
+ * <p>Analysis flow:</p>
+ * <ol>
+ *   <li><b>Phase 1 (Static Parse)</b>: Clone -> Read README -> Build
+ *       graph -> Statically extract classes, methods, HTTP endpoints,
+ *       line numbers, exceptions -> Persist immediately (no LLM).</li>
+ *   <li><b>Phase 2 (Claude Enrich)</b>: Send source code with
+ *       pre-extracted structural data -> Claude returns only business
+ *       descriptions and logic steps -> UPDATE persisted records.</li>
+ * </ol>
  *
  * <p>Query flow: Stack trace frame -> SQL lookup -> Graph neighbors ->
  * Return full context.</p>
@@ -104,12 +111,17 @@ public class CodeContextService {
     }
 
     /**
-     * Analyzes a project using class-by-class Claude API analysis.
+     * Analyzes a project using a two-phase pipeline.
      *
-     * <p>Clones the repository locally, builds a dependency graph by
-     * parsing imports (no LLM), then analyzes each class individually
-     * via the Claude API. Persists the graph as JSON for query-time
-     * neighbor resolution.</p>
+     * <p><b>Phase 1 (Static Parse)</b>: Clones the repository, builds
+     * a dependency graph, statically extracts classes, methods, HTTP
+     * endpoints, line numbers, and exceptions, then persists everything
+     * immediately (no LLM). Descriptions are null at this point.</p>
+     *
+     * <p><b>Phase 2 (Claude Enrich)</b>: Sends pre-extracted structural
+     * data to Claude for business meaning. Claude only provides
+     * descriptions and logic steps. Results are applied via SQL UPDATE
+     * queries to the already-persisted records.</p>
      *
      * @param repositoryUrl the git repository URL
      * @param branch the branch to analyze (optional, defaults to main)
@@ -128,126 +140,186 @@ public class CodeContextService {
         Path cloneDir = null;
 
         try {
-            // Clone repository locally
             cloneDir = cloneRepository(repoUrl, branchName);
 
-            // Read README for context
             final String readme = readReadme(cloneDir);
             if (readme != null) {
                 project.updateDescription(readme.substring(0,
                         Math.min(readme.length(), 500)));
             }
 
-            // Build dependency graph by parsing imports (no LLM)
             final SourceParser parser = detectParser(cloneDir);
             final ProjectGraph graph = parser.parse(cloneDir);
 
             LOG.info("Graph built: {} nodes, {} entry points",
                     graph.nodeCount(), graph.entryPointCount());
 
-            // Analyze classes in batches of BATCH_SIZE concurrently
             final List<String> analysisOrder = graph.analysisOrder();
+            final Set<String> knownIdentifiers = graph.identifiers();
+            final Path sourceRootPath = cloneDir.resolve(parser.sourceRoot());
+
+            // ---- Phase 1: Static Parse and Persist (no Claude) ----
+            LOG.info("Phase 1: Static parse and persist for {} classes",
+                    analysisOrder.size());
+
             int classCount = 0;
             int methodCount = 0;
-            int failedCount = 0;
+            int paramCount = 0;
+
+            // Collect persisted methods per identifier for parameter
+            // extraction in a second pass (after all classIds are bound)
+            final Map<String, List<SourceMethod>> methodsByIdentifier =
+                    new HashMap<>();
+
+            for (final String identifier : analysisOrder) {
+                final String sourceFile = graph.sourceFile(identifier);
+                final Path filePath = cloneDir.resolve(sourceFile);
+
+                if (!Files.exists(filePath)) {
+                    LOG.warn("Source file not found: {}", sourceFile);
+                    continue;
+                }
+
+                try {
+                    final ClassType classType = parser.inferClassType(
+                            filePath);
+                    final List<StaticMethodInfo> methods =
+                            parser.extractMethods(filePath);
+
+                    final SourceClass sourceClass = SourceClass.create(
+                            project.id(), identifier, classType,
+                            null, sourceFile);
+
+                    persistSourceClass(sourceClass);
+                    graph.bindClassId(identifier, sourceClass.id());
+                    classCount++;
+
+                    final List<SourceMethod> persistedMethods =
+                            new ArrayList<>();
+
+                    for (final StaticMethodInfo sm : methods) {
+                        final SourceMethod sourceMethod = SourceMethod.create(
+                                sourceClass.id(),
+                                sm.methodName(),
+                                null,
+                                List.of(),
+                                List.of(),
+                                sm.exceptions(),
+                                sm.httpMethod(),
+                                sm.httpPath(),
+                                sm.lineNumber());
+
+                        persistSourceMethod(sourceMethod);
+                        persistedMethods.add(sourceMethod);
+                        methodCount++;
+                    }
+
+                    methodsByIdentifier.put(identifier, persistedMethods);
+
+                } catch (final IOException e) {
+                    LOG.warn("Failed to statically parse {}: {}",
+                            sourceFile, e.getMessage());
+                }
+            }
+
+            // Second pass: extract method parameters now that all
+            // classIds are bound in the graph
+            for (final String identifier : analysisOrder) {
+                final String sourceFile = graph.sourceFile(identifier);
+                final List<SourceMethod> methods =
+                        methodsByIdentifier.get(identifier);
+
+                if (methods == null || methods.isEmpty()) {
+                    continue;
+                }
+
+                paramCount += extractMethodParams(
+                        parser, cloneDir, sourceRootPath,
+                        knownIdentifiers, graph,
+                        sourceFile, methods);
+            }
+
+            LOG.info("Phase 1 complete. Classes: {}, Methods: {}, "
+                    + "Parameters: {}", classCount, methodCount, paramCount);
+
+            // ---- Phase 2: Claude Enrichment (update only) ----
+            LOG.info("Phase 2: Claude enrichment for {} classes",
+                    analysisOrder.size());
+
+            int enrichedCount = 0;
+            int enrichFailedCount = 0;
 
             for (int i = 0; i < analysisOrder.size(); i += BATCH_SIZE) {
                 final List<String> batch = analysisOrder.subList(
                         i, Math.min(i + BATCH_SIZE, analysisOrder.size()));
 
-                LOG.info("Analyzing batch {}/{} ({} classes)",
+                LOG.info("Enriching batch {}/{} ({} classes)",
                         (i / BATCH_SIZE) + 1,
                         (int) Math.ceil(
                                 (double) analysisOrder.size() / BATCH_SIZE),
                         batch.size());
 
-                // Prepare batch inputs by reading source files
-                final List<BatchClassInput> inputs = new ArrayList<>();
+                final List<EnrichmentInput> inputs = new ArrayList<>();
                 for (final String identifier : batch) {
                     final String sourceFile = graph.sourceFile(identifier);
                     final Path filePath = cloneDir.resolve(sourceFile);
 
                     if (!Files.exists(filePath)) {
-                        LOG.warn("Source file not found: {}", sourceFile);
                         continue;
                     }
 
                     try {
                         final String sourceCode = Files.readString(filePath);
-                        inputs.add(new BatchClassInput(
-                                sourceCode, identifier, sourceFile,
-                                parser.language()));
+                        final String classId = graph.classId(identifier);
+                        final ClassType inferredType = parser.inferClassType(
+                                filePath);
+                        final List<StaticMethodInfo> methods =
+                                parser.extractMethods(filePath);
+                        final List<String> methodNames = methods.stream()
+                                .map(StaticMethodInfo::methodName)
+                                .toList();
+
+                        inputs.add(new EnrichmentInput(
+                                sourceCode, identifier, parser.language(),
+                                inferredType.name(), methodNames));
                     } catch (final IOException e) {
-                        LOG.warn("Failed to read source file {}: {}",
+                        LOG.warn("Failed to read source for enrichment {}: {}",
                                 sourceFile, e.getMessage());
-                        failedCount++;
+                        enrichFailedCount++;
                     }
                 }
 
-                // Fire concurrent analysis for the batch
-                final List<ClassAnalysisResult> results =
-                        claudeApiClient.analyzeBatch(inputs, readme);
+                final List<EnrichmentResult> results =
+                        claudeApiClient.enrichBatch(inputs, readme);
 
-                // Process results and persist
-                for (final ClassAnalysisResult result : results) {
+                for (final EnrichmentResult result : results) {
                     if (!result.success()) {
-                        LOG.warn("Analysis failed for {}: {}",
+                        LOG.warn("Enrichment failed for {}: {}",
                                 result.fullClassName(),
                                 result.errorMessage());
-                        failedCount++;
+                        enrichFailedCount++;
                         continue;
                     }
 
-                    final SourceClass sourceClass = SourceClass.create(
-                            project.id(),
-                            result.fullClassName(),
-                            ClassType.fromString(result.classType()),
-                            result.description(),
-                            result.sourceFile());
-
-                    persistSourceClass(sourceClass);
-                    classCount++;
-
-                    graph.bindClassId(
-                            result.fullClassName(), sourceClass.id());
-
-                    for (final MethodAnalysisResult method :
-                            result.methods()) {
-                        final SourceMethod sourceMethod = SourceMethod.create(
-                                sourceClass.id(),
-                                method.methodName(),
-                                method.description(),
-                                method.businessLogic(),
-                                method.dependencies(),
-                                method.exceptions(),
-                                method.httpMethod(),
-                                method.httpPath(),
-                                method.lineNumber());
-
-                        persistSourceMethod(sourceMethod);
-                        methodCount++;
-                    }
+                    applyEnrichment(result, graph);
+                    enrichedCount++;
                 }
             }
-
-            // Extract and persist method parameters
-            final int paramCount = extractAndPersistMethodParameters(
-                    parser, cloneDir, graph);
-            LOG.info("Extracted {} method parameters", paramCount);
 
             // Persist graph JSON to project
             final String graphJson = graph.toJson();
             completeAnalysis(project, graphJson);
 
-            // Update cache
             graphCache.put(project.id(), graph);
 
             final long endpointCount = sourceMethodRepository
                     .countEndpointsByProjectId(project.id());
 
             LOG.info("Analysis completed. Classes: {}, Methods: {}, "
-                            + "Endpoints: {}, Failed: {}",
-                    classCount, methodCount, endpointCount, failedCount);
+                            + "Parameters: {}, Endpoints: {}, "
+                            + "Enriched: {}, Enrich failed: {}",
+                    classCount, methodCount, paramCount, endpointCount,
+                    enrichedCount, enrichFailedCount);
 
             return new AnalysisResult(
                     true,
@@ -265,6 +337,71 @@ public class CodeContextService {
                     "ANALYSIS_FAILED", e);
         } finally {
             cleanupCloneDir(cloneDir);
+        }
+    }
+
+    /**
+     * Applies Claude enrichment results to already-persisted records.
+     *
+     * <p>Updates the source class with the description and optionally
+     * corrected class type, then updates each method with its business
+     * description and logic steps.</p>
+     *
+     * @param result the enrichment result from Claude
+     * @param graph the project graph for classId lookup
+     */
+    @Transactional
+    void applyEnrichment(final EnrichmentResult result,
+            final ProjectGraph graph) {
+
+        final String classId = graph.classId(result.fullClassName());
+        if (classId == null) {
+            LOG.warn("No classId found for {} during enrichment",
+                    result.fullClassName());
+            return;
+        }
+
+        // Determine class type: use correction if provided, else keep
+        // the statically inferred type
+        ClassType classType = null;
+        if (result.classTypeCorrection() != null
+                && !"null".equals(result.classTypeCorrection())) {
+            classType = ClassType.fromString(result.classTypeCorrection());
+        }
+
+        // If Claude corrected the type, update it; otherwise just
+        // update the description
+        if (classType != null) {
+            sourceClassRepository.updateEnrichment(
+                    classId, classType, result.description());
+        } else {
+            // Fetch current class type to preserve it
+            final Optional<SourceClass> existing =
+                    sourceClassRepository.findById(classId);
+            if (existing.isPresent()) {
+                sourceClassRepository.updateEnrichment(
+                        classId, existing.get().classType(),
+                        result.description());
+            }
+        }
+
+        // Update methods
+        for (final MethodEnrichment methodEnrich : result.methods()) {
+            final Optional<SourceMethod> method =
+                    sourceMethodRepository.findByClassIdAndMethodName(
+                            classId, methodEnrich.methodName());
+
+            if (method.isPresent()) {
+                sourceMethodRepository.updateEnrichment(
+                        method.get().id(),
+                        methodEnrich.description(),
+                        methodEnrich.businessLogic(),
+                        method.get().dependencies(),
+                        method.get().exceptions());
+            } else {
+                LOG.debug("Method {} not found for enrichment in class {}",
+                        methodEnrich.methodName(), result.fullClassName());
+            }
         }
     }
 
@@ -332,90 +469,80 @@ public class CodeContextService {
     }
 
     /**
-     * Extracts method parameters from all source files and persists them.
+     * Extracts and persists method parameters for a single analyzed class.
      *
-     * <p>For each source file, calls the parser's extractMethodParameters,
-     * then looks up the corresponding SourceMethod and SourceClass to
-     * create and persist MethodParameter entries.</p>
+     * <p>Called right after a class's methods are persisted. Parses the
+     * source file for method signatures, resolves parameter types against
+     * known project identifiers, and persists MethodParameter entries
+     * linking each method to the classes it receives.</p>
+     *
+     * <p>Only parameters whose type has an already-bound classId in the
+     * graph will be persisted. Types from classes not yet analyzed are
+     * skipped.</p>
      *
      * @param parser the source parser
      * @param cloneDir the cloned project root
+     * @param sourceRootPath the resolved source root path
+     * @param knownIdentifiers all known identifiers in the project
      * @param graph the project graph with classId bindings
+     * @param sourceFile the relative source file path
+     * @param methods the just-persisted methods for this class
      * @return the number of parameters persisted
      */
-    private int extractAndPersistMethodParameters(
+    private int extractMethodParams(
             final SourceParser parser, final Path cloneDir,
-            final ProjectGraph graph) {
+            final Path sourceRootPath,
+            final Set<String> knownIdentifiers,
+            final ProjectGraph graph,
+            final String sourceFile,
+            final List<SourceMethod> methods) {
 
-        final Set<String> knownIdentifiers = graph.identifiers();
-        final Path sourceRootPath = cloneDir.resolve(parser.sourceRoot());
-        int paramCount = 0;
-
-        // Build a lookup: identifier -> classId from the graph
-        final Map<String, String> identifierToClassId = new HashMap<>();
-        for (final String identifier : knownIdentifiers) {
-            final String classId = graph.classId(identifier);
-            if (classId != null) {
-                identifierToClassId.put(identifier, classId);
-            }
+        if (sourceFile == null || methods.isEmpty()) {
+            return 0;
         }
 
-        for (final String identifier : knownIdentifiers) {
-            final String sourceFile = graph.sourceFile(identifier);
-            final String classId = identifierToClassId.get(identifier);
+        final Path filePath = cloneDir.resolve(sourceFile);
+        if (!Files.exists(filePath)) {
+            return 0;
+        }
 
-            if (sourceFile == null || classId == null) {
-                continue;
-            }
+        int count = 0;
 
-            final Path filePath = cloneDir.resolve(sourceFile);
-            if (!Files.exists(filePath)) {
-                continue;
-            }
+        try {
+            final Map<String, List<String>> methodParams =
+                    parser.extractMethodParameters(filePath,
+                            sourceRootPath, knownIdentifiers);
 
-            try {
-                final Map<String, List<String>> methodParams =
-                        parser.extractMethodParameters(filePath,
-                                sourceRootPath, knownIdentifiers);
+            for (final SourceMethod method : methods) {
+                final List<String> paramTypes =
+                        methodParams.get(method.methodName());
 
-                for (final var entry : methodParams.entrySet()) {
-                    final String methodName = entry.getKey();
-                    final List<String> paramTypes = entry.getValue();
+                if (paramTypes == null || paramTypes.isEmpty()) {
+                    continue;
+                }
 
-                    // Look up the method by name and class
-                    final List<SourceMethod> methods =
-                            sourceMethodRepository.findByClassId(classId);
-                    final Optional<SourceMethod> method = methods.stream()
-                            .filter(m -> m.methodName().equals(methodName))
-                            .findFirst();
-
-                    if (method.isEmpty()) {
-                        continue;
-                    }
-
-                    final List<MethodParameter> params = new ArrayList<>();
-                    for (int pos = 0; pos < paramTypes.size(); pos++) {
-                        final String paramClassId =
-                                identifierToClassId.get(paramTypes.get(pos));
-                        if (paramClassId != null) {
-                            params.add(MethodParameter.create(
-                                    method.get().id(), pos, paramClassId));
-                        }
-                    }
-
-                    if (!params.isEmpty()) {
-                        persistMethodParameters(params);
-                        paramCount += params.size();
+                final List<MethodParameter> params = new ArrayList<>();
+                for (int pos = 0; pos < paramTypes.size(); pos++) {
+                    final String paramClassId =
+                            graph.classId(paramTypes.get(pos));
+                    if (paramClassId != null) {
+                        params.add(MethodParameter.create(
+                                method.id(), pos, paramClassId));
                     }
                 }
 
-            } catch (final IOException e) {
-                LOG.warn("Failed to extract parameters from {}: {}",
-                        sourceFile, e.getMessage());
+                if (!params.isEmpty()) {
+                    persistMethodParameters(params);
+                    count += params.size();
+                }
             }
+
+        } catch (final IOException e) {
+            LOG.warn("Failed to extract parameters from {}: {}",
+                    sourceFile, e.getMessage());
         }
 
-        return paramCount;
+        return count;
     }
 
     /**

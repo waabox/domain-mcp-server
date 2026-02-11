@@ -1,6 +1,8 @@
 package co.fanki.domainmcp.analysis.domain.java;
 
+import co.fanki.domainmcp.analysis.domain.ClassType;
 import co.fanki.domainmcp.analysis.domain.ProjectGraph;
+import co.fanki.domainmcp.analysis.domain.StaticMethodInfo;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -678,6 +680,54 @@ class JavaSourceParserTest {
     }
 
     @Test
+    void whenExtractingParams_givenMultilineSignature_shouldResolveParams(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+
+        writeJavaFile(sourceRoot, "co/fanki/app", "OrderService.java", """
+                package co.fanki.app;
+
+                import co.fanki.app.Order;
+                import co.fanki.app.Customer;
+
+                public class OrderService {
+                    public void placeOrder(
+                            final Order order,
+                            final Customer customer,
+                            final String note) {
+                    }
+                }
+                """);
+
+        writeJavaFile(sourceRoot, "co/fanki/app", "Order.java", """
+                package co.fanki.app;
+                public class Order {}
+                """);
+
+        writeJavaFile(sourceRoot, "co/fanki/app", "Customer.java", """
+                package co.fanki.app;
+                public class Customer {}
+                """);
+
+        final Path file = sourceRoot
+                .resolve("co/fanki/app/OrderService.java");
+        final Set<String> known = Set.of(
+                "co.fanki.app.OrderService",
+                "co.fanki.app.Order",
+                "co.fanki.app.Customer");
+
+        final Map<String, List<String>> result =
+                parser.extractMethodParameters(file, sourceRoot, known);
+
+        assertTrue(result.containsKey("placeOrder"));
+        final List<String> params = result.get("placeOrder");
+        assertEquals(2, params.size());
+        assertTrue(params.contains("co.fanki.app.Order"));
+        assertTrue(params.contains("co.fanki.app.Customer"));
+    }
+
+    @Test
     void whenExtractingParams_givenOnlyExternalTypes_shouldReturnEmpty(
             @TempDir final Path projectRoot) throws IOException {
 
@@ -797,6 +847,357 @@ class JavaSourceParserTest {
         assertTrue(result.isEmpty());
     }
 
+    // -- inferClassType() --
+
+    @Test
+    void whenInferringClassType_givenRestController_shouldReturnController(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "UserController.java", """
+                package co.fanki.app;
+
+                @RestController
+                @RequestMapping("/api/users")
+                public class UserController {
+                }
+                """);
+
+        assertEquals(ClassType.CONTROLLER, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenController_shouldReturnController(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "WebController.java", """
+                package co.fanki.app;
+
+                @Controller
+                public class WebController {
+                }
+                """);
+
+        assertEquals(ClassType.CONTROLLER, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenServiceAnnotation_shouldReturnService(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "UserService.java", """
+                package co.fanki.app;
+
+                @Service
+                public class UserService {
+                }
+                """);
+
+        assertEquals(ClassType.SERVICE, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenRepositoryAnnotation_shouldReturnRepository(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "UserRepository.java", """
+                package co.fanki.app;
+
+                @Repository
+                public class UserRepository {
+                }
+                """);
+
+        assertEquals(ClassType.REPOSITORY, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenConfigurationAnnotation_shouldReturnConfiguration(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "AppConfig.java", """
+                package co.fanki.app;
+
+                @Configuration
+                public class AppConfig {
+                }
+                """);
+
+        assertEquals(ClassType.CONFIGURATION, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenEntityAnnotation_shouldReturnEntity(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "User.java", """
+                package co.fanki.app;
+
+                @Entity
+                public class User {
+                    private String id;
+                }
+                """);
+
+        assertEquals(ClassType.ENTITY, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenKafkaListener_shouldReturnListener(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "EventConsumer.java", """
+                package co.fanki.app;
+
+                public class EventConsumer {
+                    @KafkaListener(topics = "orders")
+                    public void consume(String msg) {}
+                }
+                """);
+
+        assertEquals(ClassType.LISTENER, parser.inferClassType(file));
+    }
+
+    @Test
+    void whenInferringClassType_givenNoAnnotations_shouldReturnOther(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "PlainPojo.java", """
+                package co.fanki.app;
+
+                public class PlainPojo {
+                    private String name;
+                }
+                """);
+
+        assertEquals(ClassType.OTHER, parser.inferClassType(file));
+    }
+
+    // -- extractMethods() --
+
+    @Test
+    void whenExtractingMethods_givenSimpleClass_shouldReturnMethodsWithLineNumbers(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "UserService.java", """
+                package co.fanki.app;
+
+                public class UserService {
+
+                    public void findById(String id) {
+                        // implementation
+                    }
+
+                    public void createUser(String name) {
+                        // implementation
+                    }
+                }
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertEquals(2, methods.size());
+        assertEquals("findById", methods.get(0).methodName());
+        assertEquals(5, methods.get(0).lineNumber());
+        assertEquals("createUser", methods.get(1).methodName());
+        assertEquals(9, methods.get(1).lineNumber());
+    }
+
+    @Test
+    void whenExtractingMethods_givenGetMapping_shouldExtractHttpInfo(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "UserController.java", """
+                package co.fanki.app;
+
+                @RestController
+                public class UserController {
+
+                    @GetMapping("/users")
+                    public void listUsers() {
+                    }
+
+                    @PostMapping("/users")
+                    public void createUser(String name) {
+                    }
+
+                    @PutMapping("/users/{id}")
+                    public void updateUser(String id) {
+                    }
+
+                    @DeleteMapping("/users/{id}")
+                    public void deleteUser(String id) {
+                    }
+
+                    @PatchMapping("/users/{id}")
+                    public void patchUser(String id) {
+                    }
+                }
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertEquals(5, methods.size());
+
+        assertEquals("listUsers", methods.get(0).methodName());
+        assertEquals("GET", methods.get(0).httpMethod());
+        assertEquals("/users", methods.get(0).httpPath());
+
+        assertEquals("createUser", methods.get(1).methodName());
+        assertEquals("POST", methods.get(1).httpMethod());
+        assertEquals("/users", methods.get(1).httpPath());
+
+        assertEquals("updateUser", methods.get(2).methodName());
+        assertEquals("PUT", methods.get(2).httpMethod());
+        assertEquals("/users/{id}", methods.get(2).httpPath());
+
+        assertEquals("deleteUser", methods.get(3).methodName());
+        assertEquals("DELETE", methods.get(3).httpMethod());
+        assertEquals("/users/{id}", methods.get(3).httpPath());
+
+        assertEquals("patchUser", methods.get(4).methodName());
+        assertEquals("PATCH", methods.get(4).httpMethod());
+        assertEquals("/users/{id}", methods.get(4).httpPath());
+    }
+
+    @Test
+    void whenExtractingMethods_givenThrowsClause_shouldExtractExceptions(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "OrderService.java", """
+                package co.fanki.app;
+
+                public class OrderService {
+
+                    public void placeOrder(String id) throws IllegalArgumentException, IOException {
+                        // implementation
+                    }
+                }
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertEquals(1, methods.size());
+        assertEquals("placeOrder", methods.get(0).methodName());
+        assertEquals(List.of("IllegalArgumentException", "IOException"),
+                methods.get(0).exceptions());
+    }
+
+    @Test
+    void whenExtractingMethods_givenNoMethods_shouldReturnEmpty(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "Constants.java", """
+                package co.fanki.app;
+
+                public class Constants {
+                    public static final String NAME = "fanki";
+                }
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertTrue(methods.isEmpty());
+    }
+
+    @Test
+    void whenExtractingMethods_givenMethodWithNoHttpAnnotation_shouldHaveNullHttp(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "Service.java", """
+                package co.fanki.app;
+
+                public class Service {
+                    public void doWork() {
+                    }
+                }
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertEquals(1, methods.size());
+        assertNull(methods.get(0).httpMethod());
+        assertNull(methods.get(0).httpPath());
+        assertTrue(methods.get(0).exceptions().isEmpty());
+    }
+
+    @Test
+    void whenExtractingMethods_givenRequestMapping_shouldExtractHttpInfo(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "LegacyController.java", """
+                package co.fanki.app;
+
+                @RestController
+                public class LegacyController {
+
+                    @RequestMapping(value = "/api/legacy", method = RequestMethod.POST)
+                    public void legacyEndpoint() {
+                    }
+                }
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertEquals(1, methods.size());
+        assertEquals("POST", methods.get(0).httpMethod());
+        assertEquals("/api/legacy", methods.get(0).httpPath());
+    }
+
+    @Test
+    void whenExtractingMethods_givenMultilineThrows_shouldExtractExceptions(
+            @TempDir final Path projectRoot) throws IOException {
+
+        final Path sourceRoot = createSourceRoot(projectRoot);
+        final Path file = writeJavaFile(sourceRoot, "co/fanki/app",
+                "Processor.java", """
+                package co.fanki.app;
+
+                public class Processor {
+
+                    public void process(
+                            final String input)
+                            throws IllegalStateException {
+                        // implementation
+                    }
+                }
+                """);
+
+        final List<StaticMethodInfo> methods = parser.extractMethods(file);
+
+        assertEquals(1, methods.size());
+        assertEquals("process", methods.get(0).methodName());
+        assertEquals(List.of("IllegalStateException"),
+                methods.get(0).exceptions());
+    }
+
     // -- Helper methods --
 
     private Path createSourceRoot(final Path projectRoot) throws IOException {
@@ -805,7 +1206,7 @@ class JavaSourceParserTest {
         return sourceRoot;
     }
 
-    private void writeJavaFile(final Path sourceRoot,
+    private Path writeJavaFile(final Path sourceRoot,
             final String packagePath,
             final String fileName,
             final String content) throws IOException {
@@ -814,7 +1215,9 @@ class JavaSourceParserTest {
                 ? sourceRoot
                 : sourceRoot.resolve(packagePath);
         Files.createDirectories(dir);
-        Files.writeString(dir.resolve(fileName), content);
+        final Path file = dir.resolve(fileName);
+        Files.writeString(file, content);
+        return file;
     }
 
 }

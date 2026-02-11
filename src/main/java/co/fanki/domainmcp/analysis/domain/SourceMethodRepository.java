@@ -244,6 +244,61 @@ public class SourceMethodRepository {
     }
 
     /**
+     * Updates the enrichment data for a source method.
+     *
+     * <p>Used during Phase 2 of analysis to update the method with
+     * Claude-provided business descriptions, logic steps, dependencies,
+     * and exceptions.</p>
+     *
+     * @param id the source method ID
+     * @param description the business description from Claude
+     * @param businessLogic the business logic steps
+     * @param dependencies the dependencies
+     * @param exceptions the exceptions
+     */
+    public void updateEnrichment(final String id,
+            final String description,
+            final List<String> businessLogic,
+            final List<String> dependencies,
+            final List<String> exceptions) {
+        jdbi.useHandle(handle -> handle.createUpdate("""
+                UPDATE source_methods
+                SET description = :description,
+                    business_logic = :businessLogic,
+                    dependencies = :dependencies,
+                    exceptions = :exceptions
+                WHERE id = :id
+                """)
+                .bind("id", id)
+                .bind("description", description)
+                .bind("businessLogic", toJson(businessLogic))
+                .bind("dependencies", toJson(dependencies))
+                .bind("exceptions", toJson(exceptions))
+                .execute());
+    }
+
+    /**
+     * Finds all source methods for a class by class ID and method name.
+     *
+     * @param classId the class ID
+     * @param methodName the method name
+     * @return the source method if found
+     */
+    public Optional<SourceMethod> findByClassIdAndMethodName(
+            final String classId, final String methodName) {
+        return jdbi.withHandle(handle -> handle
+                .createQuery("""
+                        SELECT * FROM source_methods
+                        WHERE class_id = :classId
+                          AND method_name = :methodName
+                        """)
+                .bind("classId", classId)
+                .bind("methodName", methodName)
+                .map(new SourceMethodRowMapper(objectMapper))
+                .findOne());
+    }
+
+    /**
      * Deletes a source method by ID.
      *
      * @param id the method ID

@@ -1,6 +1,8 @@
 package co.fanki.domainmcp.analysis.domain.nodejs;
 
+import co.fanki.domainmcp.analysis.domain.ClassType;
 import co.fanki.domainmcp.analysis.domain.SourceParser;
+import co.fanki.domainmcp.analysis.domain.StaticMethodInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,6 +76,29 @@ public class NodeJsSourceParser extends SourceParser {
     /** Matches TypeScript function/method declarations with typed params. */
     private static final Pattern TS_FUNCTION_PATTERN = Pattern.compile(
             "(?:async\\s+)?(?:function\\s+)?(\\w+)\\s*\\(([^)]*)\\)");
+
+    /** Matches NestJS @Injectable annotation. */
+    private static final Pattern NESTJS_INJECTABLE_PATTERN = Pattern.compile(
+            "@Injectable\\s*\\(");
+
+    /** Matches NestJS HTTP decorators with optional path. */
+    private static final Pattern NESTJS_HTTP_DECORATOR_PATTERN =
+            Pattern.compile(
+                    "@(Get|Post|Put|Delete|Patch)"
+                            + "\\s*\\(\\s*(?:'([^']*)'|\"([^\"]*)\")?\\s*\\)");
+
+    /** Maps NestJS decorator names to HTTP methods. */
+    private static final Map<String, String> NESTJS_HTTP_METHOD_MAP = Map.of(
+            "Get", "GET",
+            "Post", "POST",
+            "Put", "PUT",
+            "Delete", "DELETE",
+            "Patch", "PATCH"
+    );
+
+    /** Keywords that match TS_FUNCTION_PATTERN but are not methods. */
+    private static final Set<String> KEYWORD_EXCLUSIONS = Set.of(
+            "if", "for", "while", "switch", "catch", "require", "import");
 
     /** Matches ES6 named import to extract imported names and path. */
     private static final Pattern ES6_NAMED_IMPORT_PATTERN = Pattern.compile(
@@ -207,6 +232,148 @@ public class NodeJsSourceParser extends SourceParser {
         final String content = Files.readString(file);
         return NESTJS_CONTROLLER_PATTERN.matcher(content).find()
                 || EXPRESS_ROUTE_PATTERN.matcher(content).find();
+    }
+
+    /**
+     * Infers the {@link ClassType} from NestJS decorators, Express
+     * patterns, or file naming conventions.
+     *
+     * <p>Detection priority:</p>
+     * <ol>
+     *   <li>NestJS {@code @Controller(} decorator -> CONTROLLER</li>
+     *   <li>NestJS {@code @Injectable(} decorator -> SERVICE</li>
+     *   <li>Express route patterns -> CONTROLLER</li>
+     *   <li>File naming: *.controller.* -> CONTROLLER,
+     *       *.service.* -> SERVICE, *.repository.* -> REPOSITORY,
+     *       *.entity.* -> ENTITY</li>
+     *   <li>Default: OTHER</li>
+     * </ol>
+     *
+     * @param file the source file to analyze
+     * @return the inferred class type
+     * @throws IOException if file reading fails
+     */
+    @Override
+    public ClassType inferClassType(final Path file) throws IOException {
+        final String content = Files.readString(file);
+        final String filename = file.getFileName().toString().toLowerCase();
+
+        // NestJS decorators
+        if (NESTJS_CONTROLLER_PATTERN.matcher(content).find()) {
+            return ClassType.CONTROLLER;
+        }
+        if (NESTJS_INJECTABLE_PATTERN.matcher(content).find()) {
+            return ClassType.SERVICE;
+        }
+
+        // Express patterns
+        if (EXPRESS_ROUTE_PATTERN.matcher(content).find()) {
+            return ClassType.CONTROLLER;
+        }
+
+        // File naming conventions
+        if (filename.contains(".controller.")) {
+            return ClassType.CONTROLLER;
+        }
+        if (filename.contains(".service.")) {
+            return ClassType.SERVICE;
+        }
+        if (filename.contains(".repository.")) {
+            return ClassType.REPOSITORY;
+        }
+        if (filename.contains(".entity.")) {
+            return ClassType.ENTITY;
+        }
+
+        return ClassType.OTHER;
+    }
+
+    /**
+     * Extracts method/function declarations from a TypeScript/JavaScript
+     * source file with line numbers and NestJS HTTP decorators.
+     *
+     * <p>Iterates through the source lines, identifies function and
+     * method declarations, tracks their line numbers, and checks
+     * preceding lines for NestJS HTTP decorators.</p>
+     *
+     * @param file the source file to analyze
+     * @return list of statically extracted method information
+     * @throws IOException if file reading fails
+     */
+    @Override
+    public List<StaticMethodInfo> extractMethods(final Path file)
+            throws IOException {
+
+        final List<String> lines = Files.readAllLines(file);
+        final List<StaticMethodInfo> result = new ArrayList<>();
+
+        for (int i = 0; i < lines.size(); i++) {
+            final String line = lines.get(i).trim();
+
+            // Skip decorators, imports, and empty lines
+            if (line.startsWith("@") || line.startsWith("import ")
+                    || line.isEmpty()) {
+                continue;
+            }
+
+            // Skip lines that are clearly not declarations
+            if (line.startsWith("return ") || line.startsWith("const ")
+                    || line.startsWith("let ") || line.startsWith("var ")
+                    || line.startsWith("export default")
+                    || line.startsWith("//") || line.startsWith("/*")
+                    || line.startsWith("*")) {
+                continue;
+            }
+
+            final Matcher funcMatcher = TS_FUNCTION_PATTERN.matcher(line);
+            if (!funcMatcher.find()) {
+                continue;
+            }
+
+            // Ensure the match is at a declaration position (starts at
+            // or near the beginning of the line, not mid-expression)
+            if (funcMatcher.start() > 0) {
+                final String prefix = line.substring(0,
+                        funcMatcher.start()).trim();
+                if (!prefix.isEmpty()
+                        && !prefix.matches("(?:export\\s+)?"
+                                + "(?:async\\s+)?(?:static\\s+)?"
+                                + "(?:public|private|protected)?\\s*")) {
+                    continue;
+                }
+            }
+
+            final String methodName = funcMatcher.group(1);
+            if (KEYWORD_EXCLUSIONS.contains(methodName)) {
+                continue;
+            }
+
+            final int lineNumber = i + 1; // 1-based
+
+            // Look for NestJS HTTP decorators in preceding lines
+            // (scan closest first)
+            String httpMethod = null;
+            String httpPath = null;
+
+            for (int j = i - 1; j >= Math.max(0, i - 3); j--) {
+                final String decoratorLine = lines.get(j).trim();
+                final Matcher httpMatcher =
+                        NESTJS_HTTP_DECORATOR_PATTERN.matcher(decoratorLine);
+                if (httpMatcher.find()) {
+                    final String decoratorName = httpMatcher.group(1);
+                    httpMethod = NESTJS_HTTP_METHOD_MAP.get(decoratorName);
+                    httpPath = httpMatcher.group(2) != null
+                            ? httpMatcher.group(2) : httpMatcher.group(3);
+                    break;
+                }
+            }
+
+            // TypeScript/JavaScript doesn't have throws clauses
+            result.add(new StaticMethodInfo(
+                    methodName, lineNumber, httpMethod, httpPath, List.of()));
+        }
+
+        return result;
     }
 
     /**

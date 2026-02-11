@@ -13,11 +13,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 
 /**
  * Client for analyzing individual source classes using the Claude API.
@@ -119,18 +121,35 @@ public class ClaudeApiClient {
             char }.
             """;
 
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(120);
+
+    private static final int DEFAULT_MAX_RETRIES = 2;
+
     private final AnthropicClient client;
 
+    private final Semaphore semaphore;
+
     /**
-     * Creates a new ClaudeApiClient with the given API key.
+     * Creates a new ClaudeApiClient with the given API key and
+     * concurrency limit.
+     *
+     * <p>The semaphore caps the number of concurrent Claude API
+     * requests to avoid rate-limit throttling. The SDK is configured
+     * with a 120-second timeout and 2 retries for transient failures.</p>
      *
      * @param apiKey the Anthropic API key
+     * @param maxConcurrentRequests the maximum number of concurrent
+     *     API requests (used as semaphore permits)
      */
-    public ClaudeApiClient(final String apiKey) {
+    public ClaudeApiClient(final String apiKey,
+            final int maxConcurrentRequests) {
         Preconditions.requireNonBlank(apiKey, "API key is required");
         this.client = AnthropicOkHttpClient.builder()
                 .apiKey(apiKey)
+                .timeout(REQUEST_TIMEOUT)
+                .maxRetries(DEFAULT_MAX_RETRIES)
                 .build();
+        this.semaphore = new Semaphore(maxConcurrentRequests);
     }
 
     /**
@@ -211,7 +230,9 @@ public class ClaudeApiClient {
             return List.of();
         }
 
-        LOG.info("Analyzing batch of {} classes concurrently", inputs.size());
+        LOG.info("Analyzing batch of {} classes concurrently "
+                + "(max {} concurrent)", inputs.size(),
+                semaphore.availablePermits());
 
         final List<ClassAnalysisResult> results = new ArrayList<>(
                 inputs.size());
@@ -223,12 +244,19 @@ public class ClaudeApiClient {
                     inputs.size());
 
             for (final BatchClassInput input : inputs) {
-                futures.add(executor.submit(() -> analyzeClass(
-                        input.sourceCode(),
-                        input.fullClassName(),
-                        input.sourceFile(),
-                        readmeContext,
-                        input.language())));
+                futures.add(executor.submit(() -> {
+                    semaphore.acquire();
+                    try {
+                        return analyzeClass(
+                                input.sourceCode(),
+                                input.fullClassName(),
+                                input.sourceFile(),
+                                readmeContext,
+                                input.language());
+                    } finally {
+                        semaphore.release();
+                    }
+                }));
             }
 
             for (final Future<ClassAnalysisResult> future : futures) {
@@ -320,7 +348,9 @@ public class ClaudeApiClient {
             return List.of();
         }
 
-        LOG.info("Enriching batch of {} classes concurrently", inputs.size());
+        LOG.info("Enriching batch of {} classes concurrently "
+                + "(max {} concurrent)", inputs.size(),
+                semaphore.availablePermits());
 
         final List<EnrichmentResult> results = new ArrayList<>(inputs.size());
 
@@ -331,8 +361,14 @@ public class ClaudeApiClient {
                     inputs.size());
 
             for (final EnrichmentInput input : inputs) {
-                futures.add(executor.submit(
-                        () -> enrichClass(input, readmeContext)));
+                futures.add(executor.submit(() -> {
+                    semaphore.acquire();
+                    try {
+                        return enrichClass(input, readmeContext);
+                    } finally {
+                        semaphore.release();
+                    }
+                }));
             }
 
             for (final Future<EnrichmentResult> future : futures) {

@@ -31,26 +31,26 @@ class ClaudeApiClientTest {
     @Test
     void whenCreatingClient_givenNullApiKey_shouldThrowException() {
         assertThrows(IllegalArgumentException.class,
-                () -> new ClaudeApiClient(null));
+                () -> new ClaudeApiClient(null, 5));
     }
 
     @Test
     void whenCreatingClient_givenBlankApiKey_shouldThrowException() {
         assertThrows(IllegalArgumentException.class,
-                () -> new ClaudeApiClient("   "));
+                () -> new ClaudeApiClient("   ", 5));
     }
 
     @Test
     void whenCreatingClient_givenEmptyApiKey_shouldThrowException() {
         assertThrows(IllegalArgumentException.class,
-                () -> new ClaudeApiClient(""));
+                () -> new ClaudeApiClient("", 5));
     }
 
     // -- analyzeClass argument validation tests --
 
     @Test
     void whenAnalyzingClass_givenNullSourceCode_shouldThrowException() {
-        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY);
+        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY, 5);
 
         assertThrows(IllegalArgumentException.class,
                 () -> client.analyzeClass(null, "com.example.Foo",
@@ -59,7 +59,7 @@ class ClaudeApiClientTest {
 
     @Test
     void whenAnalyzingClass_givenBlankSourceCode_shouldThrowException() {
-        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY);
+        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY, 5);
 
         assertThrows(IllegalArgumentException.class,
                 () -> client.analyzeClass("   ", "com.example.Foo",
@@ -68,7 +68,7 @@ class ClaudeApiClientTest {
 
     @Test
     void whenAnalyzingClass_givenEmptySourceCode_shouldThrowException() {
-        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY);
+        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY, 5);
 
         assertThrows(IllegalArgumentException.class,
                 () -> client.analyzeClass("", "com.example.Foo",
@@ -77,7 +77,7 @@ class ClaudeApiClientTest {
 
     @Test
     void whenAnalyzingClass_givenNullClassName_shouldThrowException() {
-        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY);
+        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY, 5);
 
         assertThrows(IllegalArgumentException.class,
                 () -> client.analyzeClass("public class Foo {}", null,
@@ -86,7 +86,7 @@ class ClaudeApiClientTest {
 
     @Test
     void whenAnalyzingClass_givenBlankClassName_shouldThrowException() {
-        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY);
+        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY, 5);
 
         assertThrows(IllegalArgumentException.class,
                 () -> client.analyzeClass("public class Foo {}", "  ",
@@ -331,7 +331,7 @@ class ClaudeApiClientTest {
 
     @Test
     void whenAnalyzingBatch_givenNullInputs_shouldThrowException() {
-        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY);
+        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY, 5);
 
         assertThrows(IllegalArgumentException.class,
                 () -> client.analyzeBatch(null, "readme"));
@@ -339,7 +339,7 @@ class ClaudeApiClientTest {
 
     @Test
     void whenAnalyzingBatch_givenEmptyInputs_shouldReturnEmptyList() {
-        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY);
+        final ClaudeApiClient client = new ClaudeApiClient(DUMMY_API_KEY, 5);
 
         final List<ClassAnalysisResult> results =
                 client.analyzeBatch(List.of(), "readme");

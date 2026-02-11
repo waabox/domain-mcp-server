@@ -73,6 +73,8 @@ public class CodeContextService {
 
     private static final int BATCH_SIZE = 20;
 
+    private static final int MAX_CONCURRENT_CLAUDE_REQUESTS = 5;
+
     private final ProjectRepository projectRepository;
     private final SourceClassRepository sourceClassRepository;
     private final SourceMethodRepository sourceMethodRepository;
@@ -106,7 +108,8 @@ public class CodeContextService {
         this.sourceMethodRepository = theSourceMethodRepository;
         this.methodParameterRepository = theMethodParameterRepository;
         this.graphCache = theGraphCache;
-        this.claudeApiClient = new ClaudeApiClient(theClaudeApiKey);
+        this.claudeApiClient = new ClaudeApiClient(
+                theClaudeApiKey, MAX_CONCURRENT_CLAUDE_REQUESTS);
         this.cloneBasePath = theCloneBasePath;
     }
 
@@ -162,12 +165,11 @@ public class CodeContextService {
             LOG.info("Phase 1: Static parse and persist for {} classes",
                     analysisOrder.size());
 
-            int classCount = 0;
-            int methodCount = 0;
-            int paramCount = 0;
+            final List<SourceClass> allClasses = new ArrayList<>();
+            final List<SourceMethod> allMethods = new ArrayList<>();
 
-            // Collect persisted methods per identifier for parameter
-            // extraction in a second pass (after all classIds are bound)
+            // Collect methods per identifier for parameter extraction
+            // in a second pass (after all classIds are bound)
             final Map<String, List<SourceMethod>> methodsByIdentifier =
                     new HashMap<>();
 
@@ -190,11 +192,10 @@ public class CodeContextService {
                             project.id(), identifier, classType,
                             null, sourceFile);
 
-                    persistSourceClass(sourceClass);
+                    allClasses.add(sourceClass);
                     graph.bindClassId(identifier, sourceClass.id());
-                    classCount++;
 
-                    final List<SourceMethod> persistedMethods =
+                    final List<SourceMethod> classMethods =
                             new ArrayList<>();
 
                     for (final StaticMethodInfo sm : methods) {
@@ -209,12 +210,11 @@ public class CodeContextService {
                                 sm.httpPath(),
                                 sm.lineNumber());
 
-                        persistSourceMethod(sourceMethod);
-                        persistedMethods.add(sourceMethod);
-                        methodCount++;
+                        allMethods.add(sourceMethod);
+                        classMethods.add(sourceMethod);
                     }
 
-                    methodsByIdentifier.put(identifier, persistedMethods);
+                    methodsByIdentifier.put(identifier, classMethods);
 
                 } catch (final IOException e) {
                     LOG.warn("Failed to statically parse {}: {}",
@@ -222,8 +222,16 @@ public class CodeContextService {
                 }
             }
 
+            // Batch persist all classes and methods
+            saveAllSourceClasses(allClasses);
+            saveAllSourceMethods(allMethods);
+
+            final int classCount = allClasses.size();
+            final int methodCount = allMethods.size();
+
             // Second pass: extract method parameters now that all
             // classIds are bound in the graph
+            final List<MethodParameter> allParams = new ArrayList<>();
             for (final String identifier : analysisOrder) {
                 final String sourceFile = graph.sourceFile(identifier);
                 final List<SourceMethod> methods =
@@ -233,11 +241,15 @@ public class CodeContextService {
                     continue;
                 }
 
-                paramCount += extractMethodParams(
+                collectMethodParams(
                         parser, cloneDir, sourceRootPath,
                         knownIdentifiers, graph,
-                        identifier, sourceFile, methods);
+                        identifier, sourceFile, methods, allParams);
             }
+
+            // Batch persist all parameters
+            persistMethodParameters(allParams);
+            final int paramCount = allParams.size();
 
             LOG.info("Phase 1 complete. Classes: {}, Methods: {}, "
                     + "Parameters: {}", classCount, methodCount, paramCount);
@@ -449,36 +461,32 @@ public class CodeContextService {
     }
 
     /**
-     * Persists a source class.
+     * Batch-persists all source classes in a single transaction.
      *
-     * @param sourceClass the source class to persist
+     * @param sourceClasses the source classes to persist
      */
     @Transactional
-    void persistSourceClass(final SourceClass sourceClass) {
-        sourceClassRepository.save(sourceClass);
+    void saveAllSourceClasses(final List<SourceClass> sourceClasses) {
+        sourceClassRepository.saveAll(sourceClasses);
     }
 
     /**
-     * Persists a source method.
+     * Batch-persists all source methods in a single transaction.
      *
-     * @param sourceMethod the source method to persist
+     * @param sourceMethods the source methods to persist
      */
     @Transactional
-    void persistSourceMethod(final SourceMethod sourceMethod) {
-        sourceMethodRepository.save(sourceMethod);
+    void saveAllSourceMethods(final List<SourceMethod> sourceMethods) {
+        sourceMethodRepository.saveAll(sourceMethods);
     }
 
     /**
-     * Extracts and persists method parameters for a single analyzed class.
+     * Collects method parameters for a single class into the provided list.
      *
-     * <p>Called right after a class's methods are persisted. Parses the
-     * source file for method signatures, resolves parameter types against
-     * known project identifiers, and persists MethodParameter entries
-     * linking each method to the classes it receives.</p>
-     *
-     * <p>Only parameters whose type has an already-bound classId in the
-     * graph will be persisted. Types from classes not yet analyzed are
-     * skipped.</p>
+     * <p>Parses the source file for method signatures, resolves parameter
+     * types against known project identifiers, and appends MethodParameter
+     * entries to the accumulator list. Actual persistence is deferred to
+     * a single batch call by the caller.</p>
      *
      * @param parser the source parser
      * @param cloneDir the cloned project root
@@ -487,28 +495,27 @@ public class CodeContextService {
      * @param graph the project graph with classId bindings
      * @param identifier the class identifier (FQCN)
      * @param sourceFile the relative source file path
-     * @param methods the just-persisted methods for this class
-     * @return the number of parameters persisted
+     * @param methods the methods for this class
+     * @param accumulator the list to collect parameters into
      */
-    private int extractMethodParams(
+    private void collectMethodParams(
             final SourceParser parser, final Path cloneDir,
             final Path sourceRootPath,
             final Set<String> knownIdentifiers,
             final ProjectGraph graph,
             final String identifier,
             final String sourceFile,
-            final List<SourceMethod> methods) {
+            final List<SourceMethod> methods,
+            final List<MethodParameter> accumulator) {
 
         if (sourceFile == null || methods.isEmpty()) {
-            return 0;
+            return;
         }
 
         final Path filePath = cloneDir.resolve(sourceFile);
         if (!Files.exists(filePath)) {
-            return 0;
+            return;
         }
-
-        int count = 0;
 
         try {
             final Map<String, List<String>> methodParams =
@@ -523,7 +530,6 @@ public class CodeContextService {
                     continue;
                 }
 
-                final List<MethodParameter> params = new ArrayList<>();
                 for (int pos = 0; pos < paramTypes.size(); pos++) {
                     final String paramType = paramTypes.get(pos);
                     final String paramClassId = graph.classId(paramType);
@@ -533,14 +539,9 @@ public class CodeContextService {
                             pos, paramType);
 
                     if (paramClassId != null) {
-                        params.add(MethodParameter.create(
+                        accumulator.add(MethodParameter.create(
                                 method.id(), pos, paramClassId));
                     }
-                }
-
-                if (!params.isEmpty()) {
-                    persistMethodParameters(params);
-                    count += params.size();
                 }
             }
 
@@ -548,8 +549,6 @@ public class CodeContextService {
             LOG.warn("Failed to extract parameters from {}: {}",
                     sourceFile, e.getMessage());
         }
-
-        return count;
     }
 
     /**

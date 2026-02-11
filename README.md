@@ -58,6 +58,7 @@ as Datadog MCP.
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Running](#running)
+- [Indexing Projects](#indexing-projects)
 - [Claude Code MCP Setup](#claude-code-mcp-setup)
 - [Integration with Datadog MCP server](#integration-with-datadog-mcp-server)
 - [Data model](#data-model)
@@ -959,48 +960,7 @@ Get the public API surface of an indexed microservice. Returns all HTTP endpoint
 
 ### REST-Only Endpoints
 
-These operations are available via REST API (port 8080) but not as MCP tools:
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/projects/analyze` | POST | Analyze a git repository. Must be run before querying context. |
-| `/api/projects/{id}/rebuild-graph` | POST | Rebuild the project graph without re-running Claude enrichment. |
-
-**Analyze a project**:
-
-```bash
-curl -X POST http://localhost:8080/api/projects/analyze \
-  -H "Content-Type: application/json" \
-  -d '{
-    "repositoryUrl": "git@github.com:fanki/order-service.git",
-    "branch": "main",
-    "fixMissed": true
-  }'
-```
-
-```json
-{
-  "success": true,
-  "projectId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "classesAnalyzed": 42,
-  "endpointsFound": 12,
-  "message": "Analysis complete"
-}
-```
-
-**Rebuild a project graph**:
-
-```bash
-curl -X POST http://localhost:8080/api/projects/a1b2c3d4-e5f6-7890-abcd-ef1234567890/rebuild-graph
-```
-
-```json
-{
-  "success": true,
-  "projectId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "message": "Graph rebuilt successfully"
-}
-```
+These operations are available via REST API (port 8080) but not as MCP tools. See the [Indexing Projects](#indexing-projects) section for detailed usage.
 
 ## Installation
 
@@ -1064,9 +1024,109 @@ docker run -p 8080:8080 domain-mcp-server
 
 Deploy with env vars for DB, SSH key, LLM key.
 
+## Indexing Projects
+
+Before the MCP tools can return context about your code, you need to index your repositories through the REST API. The recommended setup is to run the analysis service as a standalone process (or container) with access to the Claude API and SSH keys, and then point the MCP server at the same PostgreSQL database for read-only querying.
+
+### Swagger UI
+
+Once the server is running, the full REST API documentation is available at:
+
+```
+http://localhost:8080/swagger-ui/index.html
+```
+
+### REST API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/projects/analyze` | POST | Analyze a git repository and index all classes and methods |
+| `/api/projects` | GET | List all analyzed projects with metadata |
+| `/api/projects/{id}/rebuild-graph` | POST | Rebuild the dependency graph without re-running Claude enrichment |
+| `/api/context/class/{className}` | GET | Get class context by fully qualified name |
+| `/api/context/class?className=` | GET | Alternative class context endpoint (query param) |
+| `/api/context/method?className=&methodName=` | GET | Get method context with business logic and dependencies |
+| `/api/context/stack-trace` | POST | Correlate a stack trace with business context |
+| `/health` | GET | Health check |
+
+### Analyzing a repository
+
+To index a project, send a POST request to the analysis endpoint:
+
+```bash
+curl -X POST http://localhost:8080/api/projects/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repositoryUrl": "git@github.com:fanki/order-service.git",
+    "branch": "main",
+    "fixMissed": true
+  }'
+```
+
+```json
+{
+  "success": true,
+  "projectId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "classesAnalyzed": 42,
+  "endpointsFound": 12,
+  "message": "Analysis complete"
+}
+```
+
+The `fixMissed` flag (default `true`) re-analyzes any classes that failed in a previous run.
+
+### Rebuilding the dependency graph
+
+If the parser is updated or you want to refresh the structural graph without re-running Claude enrichment:
+
+```bash
+curl -X POST http://localhost:8080/api/projects/{projectId}/rebuild-graph
+```
+
+```json
+{
+  "success": true,
+  "projectId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "message": "Graph rebuilt successfully"
+}
+```
+
+### Recommended architecture
+
+The analysis service and the MCP server share the same PostgreSQL database but serve different purposes:
+
+```
+                        +-----------------------+
+                        |   Analysis Service    |
+                        |  (REST API, port 8080)|
+                        |  ANTHROPIC_API_KEY    |
+                        |  GIT_SSH_KEY_PATH     |
+                        +-----------+-----------+
+                                    |
+                                    | writes
+                                    v
+                        +-----------------------+
+                        |     PostgreSQL        |
+                        |   domain_mcp schema   |
+                        +-----------+-----------+
+                                    |
+                                    | reads
+                                    v
+                        +-----------------------+
+                        |   MCP Server (stdio)  |
+                        |  Claude Code plugin   |
+                        |  No API key needed    |
+                        +-----------------------+
+```
+
+- **Analysis Service**: runs as a standalone service (or Docker container). Needs `ANTHROPIC_API_KEY` and `GIT_SSH_KEY_PATH` to clone repos and analyze code with Claude. Exposes the REST API on port 8080.
+- **MCP Server**: runs as a stdio process launched by Claude Code. Only needs database credentials to read the indexed data. Does not need API keys or SSH access.
+
+This separation means you can run the analysis once (or on a schedule), and the MCP server stays lightweight and fast.
+
 ## Claude Code MCP Setup
 
-The server supports **MCP stdio transport** for direct integration with Claude Code. When running in MCP mode, the server communicates via JSON-RPC over stdin/stdout while keeping REST endpoints available on port 8080.
+The server supports **MCP stdio transport** for direct integration with Claude Code. The MCP server only needs database credentials to read indexed data — it does not require an Anthropic API key or SSH keys (see [Recommended architecture](#recommended-architecture)).
 
 ### 1. Build the JAR
 
@@ -1096,16 +1156,14 @@ Add this to your Claude Code MCP settings (`~/.claude/settings.json` or via `/se
       "env": {
         "DATABASE_URL": "jdbc:postgresql://localhost:5432/domain_mcp?currentSchema=domain_mcp",
         "DATABASE_USERNAME": "postgres",
-        "DATABASE_PASSWORD": "postgres",
-        "ANTHROPIC_API_KEY": "sk-ant-...",
-        "GIT_SSH_KEY_PATH" : "/Users/<user>/.ssh/id_rsa"
+        "DATABASE_PASSWORD": "postgres"
       }
     }
   }
 }
 ```
 
-Replace `/absolute/path/to/` with the actual path to the project on your machine.
+Replace `/absolute/path/to/` with the actual path to the project on your machine. Note that only database credentials are needed — the MCP server reads from the same PostgreSQL database populated by the [analysis service](#indexing-projects).
 
 ### 4. Verify the connection
 

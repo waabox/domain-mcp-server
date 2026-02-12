@@ -50,3 +50,5 @@ application-local.yml
 
 # Scripts with sensitive data
 scripts/repos.txt
+scripts/env.sh
+scripts/run.sh

@@ -308,6 +308,46 @@ public class SourceClassRepository {
     }
 
     /**
+     * Deletes source classes by a list of IDs.
+     *
+     * <p>Used during incremental sync to remove classes that no longer
+     * exist in the source tree.</p>
+     *
+     * @param ids the class IDs to delete
+     */
+    public void deleteByIds(final List<String> ids) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        jdbi.useHandle(handle -> handle
+                .createUpdate("DELETE FROM source_classes WHERE id IN (<ids>)")
+                .bindList("ids", ids)
+                .execute());
+    }
+
+    /**
+     * Batch updates the commit hash for multiple source classes.
+     *
+     * @param ids the class IDs to update
+     * @param commitHash the new commit hash
+     */
+    public void updateCommitHashBatch(final List<String> ids,
+            final String commitHash) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        jdbi.useHandle(handle -> handle
+                .createUpdate("""
+                        UPDATE source_classes
+                        SET commit_hash = :commitHash
+                        WHERE id IN (<ids>)
+                        """)
+                .bind("commitHash", commitHash)
+                .bindList("ids", ids)
+                .execute());
+    }
+
+    /**
      * Deletes a source class by ID.
      *
      * @param id the class ID

@@ -43,6 +43,11 @@ git:
   clone-base-path: ${GIT_CLONE_BASE_PATH:/tmp/domain-mcp-repos}
   timeout-seconds: 300
 
+# Sync Configuration (incremental project sync)
+sync:
+  enabled: ${SYNC_ENABLED:false}
+  cron: ${SYNC_CRON:0 0 2 * * *}
+
 # MCP Server Configuration
 mcp:
   server:

@@ -25,7 +25,12 @@ public enum ProjectStatus {
     /**
      * An error occurred during analysis.
      */
-    ERROR;
+    ERROR,
+
+    /**
+     * Project is currently being synced (incremental update).
+     */
+    SYNCING;
 
     /**
      * Checks if the project is in a state where it can be analyzed.
@@ -37,12 +42,24 @@ public enum ProjectStatus {
     }
 
     /**
+     * Checks if the project is in a state where it can be synced.
+     *
+     * <p>Only projects that have been fully analyzed at least once
+     * can be incrementally synced.</p>
+     *
+     * @return true if sync can be started
+     */
+    public boolean canSync() {
+        return this == ANALYZED;
+    }
+
+    /**
      * Checks if the project is in a processing state.
      *
      * @return true if currently processing
      */
     public boolean isProcessing() {
-        return this == ANALYZING;
+        return this == ANALYZING || this == SYNCING;
     }
 
 }

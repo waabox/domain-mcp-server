@@ -146,6 +146,34 @@ public final class Project {
     }
 
     /**
+     * Marks the project as currently being synced (incremental update).
+     *
+     * @throws DomainException if the project cannot be synced
+     */
+    public void startSync() {
+        if (!status.canSync()) {
+            throw new DomainException(
+                    "Cannot sync project in status: " + status,
+                    "PROJECT_CANNOT_SYNC");
+        }
+        this.status = ProjectStatus.SYNCING;
+        this.updatedAt = Instant.now();
+    }
+
+    /**
+     * Marks the incremental sync as complete.
+     *
+     * @param commitHash the new HEAD commit hash
+     */
+    public void syncCompleted(final String commitHash) {
+        Preconditions.requireNonBlank(commitHash, "Commit hash is required");
+        this.status = ProjectStatus.ANALYZED;
+        this.lastAnalyzedAt = Instant.now();
+        this.lastCommitHash = commitHash;
+        this.updatedAt = Instant.now();
+    }
+
+    /**
      * Updates the project description derived from README analysis.
      *
      * @param theDescription the project description, may be null

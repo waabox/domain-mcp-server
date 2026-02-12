@@ -317,6 +317,25 @@ public class SourceMethodRepository {
                 .execute());
     }
 
+    /**
+     * Deletes all methods for multiple classes.
+     *
+     * <p>Used during incremental sync to clear methods for classes
+     * that will be re-parsed.</p>
+     *
+     * @param classIds the class IDs whose methods should be deleted
+     */
+    public void deleteByClassIds(final List<String> classIds) {
+        if (classIds.isEmpty()) {
+            return;
+        }
+        jdbi.useHandle(handle -> handle
+                .createUpdate(
+                        "DELETE FROM source_methods WHERE class_id IN (<classIds>)")
+                .bindList("classIds", classIds)
+                .execute());
+    }
+
     private Timestamp toTimestamp(final Instant instant) {
         return instant != null ? Timestamp.from(instant) : null;
     }

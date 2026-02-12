@@ -132,6 +132,31 @@ public class MethodParameterRepository {
                 .execute());
     }
 
+    /**
+     * Deletes all parameters for methods belonging to multiple classes.
+     *
+     * <p>Used during incremental sync to clear parameters for classes
+     * whose methods will be re-parsed. Joins through source_methods to
+     * find the correct method_parameter rows.</p>
+     *
+     * @param classIds the class IDs whose method parameters should be deleted
+     */
+    public void deleteByClassIds(final List<String> classIds) {
+        if (classIds.isEmpty()) {
+            return;
+        }
+        jdbi.useHandle(handle -> handle
+                .createUpdate("""
+                        DELETE FROM method_parameters
+                        WHERE method_id IN (
+                            SELECT id FROM source_methods
+                            WHERE class_id IN (<classIds>)
+                        )
+                        """)
+                .bindList("classIds", classIds)
+                .execute());
+    }
+
     private Timestamp toTimestamp(final Instant instant) {
         return instant != null ? Timestamp.from(instant) : null;
     }

@@ -2,6 +2,7 @@ package co.fanki.domainmcp;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Domain MCP Server Application.
@@ -14,6 +15,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * @author waabox(emiliano[at]fanki[dot]co)
  */
 @SpringBootApplication
+@EnableScheduling
 public class DomainMcpServerApplication {
 
     /**

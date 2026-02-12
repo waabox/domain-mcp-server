@@ -16,7 +16,7 @@ import co.fanki.domainmcp.analysis.domain.SourceMethodRepository;
 import co.fanki.domainmcp.analysis.domain.SourceParser;
 import co.fanki.domainmcp.analysis.domain.StaticMethodInfo;
 import co.fanki.domainmcp.analysis.domain.java.JavaSourceParser;
-import co.fanki.domainmcp.analysis.domain.nodejs.NodeJsSourceParser;
+import co.fanki.domainmcp.analysis.domain.nodejs.NodeJsGraalParser;
 import co.fanki.domainmcp.project.domain.Project;
 import co.fanki.domainmcp.project.domain.ProjectRepository;
 import co.fanki.domainmcp.project.domain.RepositoryUrl;
@@ -639,9 +639,12 @@ public class CodeContextService {
 
         // Update methods
         for (final MethodEnrichment methodEnrich : result.methods()) {
+            final String methodName = normalizeMethodName(
+                    methodEnrich.methodName());
+
             final Optional<SourceMethod> method =
                     sourceMethodRepository.findByClassIdAndMethodName(
-                            classId, methodEnrich.methodName());
+                            classId, methodName);
 
             if (method.isPresent()) {
                 sourceMethodRepository.updateEnrichment(
@@ -651,9 +654,31 @@ public class CodeContextService {
                         method.get().exceptions());
             } else {
                 LOG.debug("Method {} not found for enrichment in class {}",
-                        methodEnrich.methodName(), result.fullClassName());
+                        methodName, result.fullClassName());
             }
         }
+    }
+
+    /**
+     * Normalizes a method name returned by Claude enrichment.
+     *
+     * <p>Claude sometimes qualifies method names with context in
+     * parentheses, e.g. "onSuccess (loginMutation)". This strips
+     * any trailing parenthetical qualifier to match the raw extracted
+     * method name.</p>
+     *
+     * @param methodName the method name from Claude enrichment
+     * @return the normalized method name
+     */
+    private String normalizeMethodName(final String methodName) {
+        if (methodName == null) {
+            return null;
+        }
+        final int parenIndex = methodName.indexOf('(');
+        if (parenIndex > 0) {
+            return methodName.substring(0, parenIndex).trim();
+        }
+        return methodName.trim();
     }
 
     /**
@@ -1566,7 +1591,7 @@ public class CodeContextService {
                 && !Files.exists(cloneDir.resolve("build.gradle"))
                 && !Files.exists(cloneDir.resolve("build.gradle.kts"))) {
             LOG.info("Detected Node.js/TypeScript project");
-            return new NodeJsSourceParser();
+            return new NodeJsGraalParser();
         }
         LOG.info("Detected Java project (default)");
         return new JavaSourceParser();

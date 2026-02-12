@@ -52,3 +52,6 @@ application-local.yml
 scripts/repos.txt
 scripts/env.sh
 scripts/run.sh
+
+# JS Analyzer build artifacts (bundle is committed, node_modules is not)
+src/main/resources/js/analyzer/node_modules/

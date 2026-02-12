@@ -4,8 +4,8 @@ import co.fanki.domainmcp.analysis.domain.ClassType;
 import co.fanki.domainmcp.analysis.domain.SourceParser;
 import co.fanki.domainmcp.analysis.domain.StaticMethodInfo;
 
+import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParserConfiguration;
-import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -58,11 +58,10 @@ public class JavaSourceParser extends SourceParser {
     private static final Logger LOG = LoggerFactory.getLogger(
             JavaSourceParser.class);
 
-    static {
-        StaticJavaParser.getParserConfiguration()
-                .setLanguageLevel(
-                        ParserConfiguration.LanguageLevel.JAVA_21);
-    }
+    private static final JavaParser PARSER = new JavaParser(
+            new ParserConfiguration()
+                    .setLanguageLevel(
+                            ParserConfiguration.LanguageLevel.JAVA_21));
 
     private static final String SOURCE_ROOT = "src/main/java";
 
@@ -631,7 +630,12 @@ public class JavaSourceParser extends SourceParser {
      */
     private CompilationUnit parseFile(final Path file) throws IOException {
         try {
-            return StaticJavaParser.parse(file);
+            return PARSER.parse(file)
+                    .getResult()
+                    .orElseThrow(() -> new IOException(
+                            "No parse result for " + file));
+        } catch (final IOException e) {
+            throw e;
         } catch (final Exception e) {
             LOG.warn("Failed to parse {}: {}", file, e.getMessage());
             throw new IOException("Failed to parse " + file, e);

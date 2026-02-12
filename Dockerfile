@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y curl \
 
 WORKDIR /app
 
-ARG VERSION=1.4
+ARG VERSION=1.5
 RUN curl -fsSL -o app.jar \
     "https://github.com/waabox/domain-mcp-server/releases/download/v${VERSION}/domain-mcp-server-${VERSION}.jar"
 

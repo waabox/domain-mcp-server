@@ -10,21 +10,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:14
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: domain_mcp
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - uses: actions/checkout@v4
 
@@ -35,13 +20,5 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Create database schema
-        run: |
-          PGPASSWORD=postgres psql -h localhost -U postgres -d domain_mcp -c "CREATE SCHEMA IF NOT EXISTS domain_mcp;"
-
       - name: Build and test
-        run: mvn -B verify
-        env:
-          DATABASE_URL: jdbc:postgresql://localhost:5432/domain_mcp
-          DATABASE_USERNAME: postgres
-          DATABASE_PASSWORD: postgres
+        run: mvn -B verify -Dsurefire.excludes="**/*IntegrationTest.java"

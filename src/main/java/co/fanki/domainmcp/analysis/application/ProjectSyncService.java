@@ -20,6 +20,7 @@ import co.fanki.domainmcp.analysis.domain.java.JavaSourceParser;
 import co.fanki.domainmcp.analysis.domain.nodejs.NodeJsGraalParser;
 import co.fanki.domainmcp.project.domain.Project;
 import co.fanki.domainmcp.project.domain.ProjectRepository;
+import co.fanki.domainmcp.project.domain.ProjectStatus;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffEntry;
@@ -887,5 +888,79 @@ public class ProjectSyncService {
             return new SyncResult(false, projectName, null,
                     0, 0, 0, 0, 0, 0, errorMessage);
         }
+    }
+
+    /**
+     * Aggregated result of syncing all eligible projects.
+     *
+     * @param success true if every project synced without errors
+     * @param totalProjects number of eligible projects
+     * @param successCount number of successful syncs
+     * @param failureCount number of failed syncs
+     * @param results per-project sync results
+     */
+    public record SyncAllResult(
+            boolean success,
+            int totalProjects,
+            int successCount,
+            int failureCount,
+            List<SyncResult> results
+    ) {}
+
+    /**
+     * Syncs all projects with {@code ANALYZED} status incrementally.
+     *
+     * <p>Replicates the same logic as the scheduled cron task:
+     * fetches all eligible projects and syncs each one using git diffs,
+     * re-enriching only changed or new classes.</p>
+     *
+     * @return the aggregated sync result
+     */
+    public SyncAllResult syncAllProjects() {
+        LOG.info("Starting manual sync for all projects");
+
+        final List<Project> projects = projectRepository.findByStatus(
+                ProjectStatus.ANALYZED);
+
+        if (projects.isEmpty()) {
+            LOG.info("No projects eligible for sync");
+            return new SyncAllResult(true, 0, 0, 0, List.of());
+        }
+
+        LOG.info("Found {} projects eligible for sync", projects.size());
+
+        int successCount = 0;
+        int failureCount = 0;
+        final List<SyncResult> results = new ArrayList<>();
+
+        for (final Project project : projects) {
+            try {
+                final SyncResult result = syncProject(project);
+
+                if (result.success()) {
+                    successCount++;
+                } else {
+                    failureCount++;
+                }
+                results.add(result);
+
+            } catch (final Exception e) {
+                failureCount++;
+                LOG.error("Unexpected error syncing project {}: {}",
+                        project.name(), e.getMessage(), e);
+                results.add(SyncResult.failure(
+                        project.name(), e.getMessage()));
+            }
+        }
+
+        LOG.info("Manual sync complete. Success: {}, Failed: {}",
+                successCount, failureCount);
+
+        return new SyncAllResult(
+                failureCount == 0,
+                projects.size(),
+                successCount,
+                failureCount,
+                results);
     }
 }

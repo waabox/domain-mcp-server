@@ -1,6 +1,8 @@
 package co.fanki.domainmcp.analysis.application;
 
 import co.fanki.domainmcp.analysis.application.CodeContextService.AnalysisResult;
+import co.fanki.domainmcp.analysis.application.ProjectSyncService.SyncAllResult;
+import co.fanki.domainmcp.analysis.application.ProjectSyncService.SyncResult;
 import co.fanki.domainmcp.shared.DomainException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -16,6 +18,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * REST controller for project analysis operations.
@@ -33,15 +37,19 @@ public class AnalyzeProjectController {
             AnalyzeProjectController.class);
 
     private final CodeContextService codeContextService;
+    private final ProjectSyncService projectSyncService;
 
     /**
      * Creates a new AnalyzeProjectController.
      *
      * @param theCodeContextService the code context service
+     * @param theProjectSyncService the project sync service
      */
     public AnalyzeProjectController(
-            final CodeContextService theCodeContextService) {
+            final CodeContextService theCodeContextService,
+            final ProjectSyncService theProjectSyncService) {
         this.codeContextService = theCodeContextService;
+        this.projectSyncService = theProjectSyncService;
     }
 
     /**
@@ -140,6 +148,54 @@ public class AnalyzeProjectController {
     }
 
     /**
+     * Manually triggers incremental sync for all eligible projects.
+     *
+     * <p>Replicates the same logic as the scheduled cron task: fetches
+     * all projects with {@code ANALYZED} status and syncs each one
+     * incrementally using git diffs.</p>
+     *
+     * @return the sync results for each project
+     */
+    @Operation(
+            summary = "Trigger manual sync for all projects",
+            description = "Runs the same incremental sync that the scheduled cron "
+                    + "task performs. Syncs all projects with ANALYZED status, "
+                    + "re-enriching only changed or new classes."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Sync completed",
+                    content = @Content(schema = @Schema(
+                            implementation = SyncAllResponse.class))),
+            @ApiResponse(responseCode = "500", description = "Sync failed")
+    })
+    @PostMapping("/sync")
+    public ResponseEntity<SyncAllResponse> syncAllProjects() {
+
+        LOG.info("Received manual sync request");
+
+        final SyncAllResult result = projectSyncService.syncAllProjects();
+
+        final List<ProjectSyncSummary> summaries = result.results().stream()
+                .map(r -> new ProjectSyncSummary(
+                        r.projectName(),
+                        r.success(),
+                        r.addedClasses(),
+                        r.updatedClasses(),
+                        r.deletedClasses(),
+                        r.unchangedClasses(),
+                        r.errorMessage()))
+                .toList();
+
+        return ResponseEntity.ok(new SyncAllResponse(
+                result.success(),
+                result.totalProjects(),
+                result.successCount(),
+                result.failureCount(),
+                summaries,
+                "Sync completed"));
+    }
+
+    /**
      * Request for project analysis.
      *
      * @param repositoryUrl the git repository URL
@@ -175,6 +231,46 @@ public class AnalyzeProjectController {
             boolean success,
             String projectId,
             String message
+    ) {}
+
+    /**
+     * Response from sync-all operation.
+     *
+     * @param success true if all projects synced without errors
+     * @param totalProjects number of eligible projects
+     * @param successCount number of successful syncs
+     * @param failureCount number of failed syncs
+     * @param projects per-project sync summaries
+     * @param message a human-readable result message
+     */
+    public record SyncAllResponse(
+            boolean success,
+            int totalProjects,
+            int successCount,
+            int failureCount,
+            List<ProjectSyncSummary> projects,
+            String message
+    ) {}
+
+    /**
+     * Per-project sync summary.
+     *
+     * @param projectName the project name
+     * @param success whether this project synced successfully
+     * @param addedClasses number of new classes found
+     * @param updatedClasses number of updated classes
+     * @param deletedClasses number of deleted classes
+     * @param unchangedClasses number of unchanged classes
+     * @param errorMessage error message if sync failed, null otherwise
+     */
+    public record ProjectSyncSummary(
+            String projectName,
+            boolean success,
+            int addedClasses,
+            int updatedClasses,
+            int deletedClasses,
+            int unchangedClasses,
+            String errorMessage
     ) {}
 
 }

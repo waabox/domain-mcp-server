@@ -15,6 +15,7 @@ import co.fanki.domainmcp.analysis.domain.SourceMethod;
 import co.fanki.domainmcp.analysis.domain.SourceMethodRepository;
 import co.fanki.domainmcp.analysis.domain.SourceParser;
 import co.fanki.domainmcp.analysis.domain.StaticMethodInfo;
+import co.fanki.domainmcp.analysis.domain.golang.GoSourceParser;
 import co.fanki.domainmcp.analysis.domain.java.JavaSourceParser;
 import co.fanki.domainmcp.analysis.domain.nodejs.NodeJsGraalParser;
 import co.fanki.domainmcp.project.domain.Project;
@@ -1586,6 +1587,10 @@ public class CodeContextService {
      * @return the appropriate source parser
      */
     SourceParser detectParser(final Path cloneDir) {
+        if (Files.exists(cloneDir.resolve("go.mod"))) {
+            LOG.info("Detected Go project");
+            return new GoSourceParser();
+        }
         if (Files.exists(cloneDir.resolve("package.json"))
                 && !Files.exists(cloneDir.resolve("pom.xml"))
                 && !Files.exists(cloneDir.resolve("build.gradle"))

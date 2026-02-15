@@ -75,7 +75,7 @@ and tooling.
 ## What this MCP does
 
 -   Git cloning via JGit (shallow clone, branch selection)
--   Auto-detection of project language (Java, Node.js/TypeScript)
+-   Auto-detection of project language (Java, Node.js/TypeScript, Go)
 -   Import-based dependency graph building (no LLM)
 -   Per-class/module Claude API analysis (language-aware prompts)
 -   PostgreSQL-backed catalog of classes, methods, and endpoints
@@ -88,14 +88,15 @@ and tooling.
 |----------|--------|------------|--------------|
 | Java | `JavaSourceParser` | `src/main/java` | `@RestController`, `@Controller`, `@KafkaListener`, `@Scheduled`, `@EventListener`, `@SpringBootApplication` |
 | Node.js / TypeScript | `NodeJsSourceParser` | `src` | NestJS `@Controller`, Express routes (`app.get`, `router.post`, etc.), well-known files (`main.ts`, `index.ts`, `app.ts`, `server.ts`) |
+| Go | `GoSourceParser` | `.` (project root) | `func main()`, HTTP handler registrations (net/http, gin, chi, echo, fiber), gRPC service registrations |
 
-Language is auto-detected from project marker files: `pom.xml` / `build.gradle` for Java, `package.json` for Node.js/TypeScript.
+Language is auto-detected from project marker files: `pom.xml` / `build.gradle` for Java, `package.json` for Node.js/TypeScript, `go.mod` for Go.
 
 ## Architecture
 
 Java 21 + Spring Boot 3.3 (MCP-enabled)\
 JGit for repository cloning\
-Per-language source parsers (Java, Node.js/TypeScript)\
+Per-language source parsers (Java, Node.js/TypeScript, Go)\
 Claude API (Sonnet 4.5) for per-class business analysis (language-aware prompts)\
 Import-based dependency graph (no LLM needed for graph)\
 PostgreSQL persistence (JDBI3)\
@@ -1223,7 +1224,7 @@ Minimal `"ok"` / `"up"` HTTP endpoint for probes.
 
 ## Roadmap
 
-Additional language parsers (Python, Go), incremental indexing, improved cross-service linking, better LLM patterns.
+Additional language parsers (Python, Kotlin), incremental indexing, improved cross-service linking, better LLM patterns.
 
 ## Contributing
 

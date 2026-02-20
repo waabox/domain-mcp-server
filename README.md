@@ -53,6 +53,11 @@ Designed to run standalone or in concert with other MCP servers such as Datadog 
   - [get_project_overview](#get_project_overview)
   - [get_service_api](#get_service_api)
   - [REST-Only Endpoints](#rest-only-endpoints)
+- [Graph Query DSL](#graph-query-dsl)
+  - [Syntax](#syntax)
+  - [Token Types](#token-types)
+  - [Keywords](#keywords)
+  - [Examples](#examples)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Running](#running)
@@ -961,6 +966,259 @@ Get the public API surface of an indexed microservice. Returns all HTTP endpoint
 
 These operations are available via REST API (port 8080) but not as MCP tools. See the [Indexing Projects](#indexing-projects) section for detailed usage.
 
+## Graph Query DSL
+
+The graph query endpoint (`POST /api/graph/query`) provides a colon-separated DSL for querying the in-memory project graph. All queries are resolved entirely from memory — no database access at query time.
+
+### Syntax
+
+```
+project:target[:navigation]*[:+include]*[:?check]
+```
+
+A query is a colon-separated string where:
+- The **first segment** is always the project name.
+- The **second segment** is the target: either a keyword (`endpoints`, `classes`, `entrypoints`) or any vertex (class name) in the graph.
+- Subsequent segments are tokenized by their prefix.
+
+### Token Types
+
+| Prefix | Token Type | Description |
+|--------|-----------|-------------|
+| *(none)* | `NAVIGATE` | Traverses the graph (e.g., `methods`, `dependencies`, `UserService`) |
+| `+` | `INCLUDE` | Projection modifier — adds extra data to the response (e.g., `+logic`, `+dependencies`) |
+| `?` | `CHECK` | Existence predicate — checks if a method exists on a vertex (e.g., `?createUser`) |
+
+### Keywords
+
+These reserved words act as list operations when used as the first navigation target:
+
+| Keyword | Description |
+|---------|-------------|
+| `endpoints` | List all HTTP endpoints across the project |
+| `classes` | List all classes/modules in the project |
+| `entrypoints` | List entry point classes (controllers, listeners) |
+
+Any other value is resolved as a vertex (class name) in the graph, with fuzzy matching (exact, suffix, contains).
+
+### Examples
+
+#### Listing endpoints
+
+```bash
+# All HTTP endpoints in the project
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:endpoints"}'
+
+# Endpoints with business logic included
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:endpoints:+logic"}'
+```
+
+Response:
+```json
+{
+  "resultType": "endpoints",
+  "project": "order-service",
+  "count": 5,
+  "results": [
+    {
+      "className": "co.fanki.order.application.OrderController",
+      "classType": "CONTROLLER",
+      "methodName": "createOrder",
+      "httpMethod": "POST",
+      "httpPath": "/api/orders",
+      "description": "Creates a new order",
+      "businessLogic": ["Validate input", "Delegate to OrderService"]
+    }
+  ]
+}
+```
+
+#### Listing classes
+
+```bash
+# All classes
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:classes"}'
+
+# Classes with dependencies and dependents
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:classes:+dependencies:+dependents"}'
+
+# Classes with method summaries
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:classes:+methods"}'
+```
+
+#### Listing entry points
+
+```bash
+# All entry points (controllers, listeners)
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:entrypoints"}'
+
+# Entry points with business logic on their endpoints
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:entrypoints:+logic"}'
+```
+
+#### Navigating to a vertex (class)
+
+Navigate directly to any class by name — no `class:` prefix needed. Supports simple name, FQCN, or partial match.
+
+```bash
+# Class overview (methods summary, dependencies, dependents)
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:OrderService"}'
+
+# Same with fully qualified name
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:co.fanki.order.domain.OrderService"}'
+
+# Class overview with business logic in method summaries
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:OrderService:+logic"}'
+```
+
+Response:
+```json
+{
+  "resultType": "class",
+  "project": "order-service",
+  "count": 1,
+  "results": [
+    {
+      "className": "co.fanki.order.domain.OrderService",
+      "classType": "SERVICE",
+      "description": "Core domain service for order lifecycle management",
+      "sourceFile": "src/main/java/co/fanki/order/domain/OrderService.java",
+      "entryPoint": false,
+      "dependencies": ["co.fanki.order.domain.OrderRepository", "co.fanki.order.domain.PaymentService"],
+      "dependents": ["co.fanki.order.application.OrderController"],
+      "methods": [
+        {
+          "methodName": "placeOrder",
+          "description": "Creates a new order after validating stock and payment",
+          "httpEndpoint": null
+        },
+        {
+          "methodName": "cancelOrder",
+          "description": "Cancels an existing order and releases reserved stock",
+          "httpEndpoint": null
+        }
+      ]
+    }
+  ]
+}
+```
+
+#### Sub-navigation on a vertex
+
+```bash
+# All methods of a class
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:OrderService:methods"}'
+
+# Methods with business logic
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:OrderService:methods:+logic"}'
+
+# Single method detail
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:OrderController:method:createOrder"}'
+
+# Outgoing dependencies
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:OrderService:dependencies"}'
+
+# Incoming dependents (who depends on this class)
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:OrderService:dependents"}'
+```
+
+#### Existence checks (`?`)
+
+Check if a class has a specific method. Returns `exists: true/false` with method details when found.
+
+```bash
+# Does OrderController have a createOrder method?
+curl -X POST http://localhost:8080/api/graph/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "order-service:OrderController:?createOrder"}'
+```
+
+Response when method exists:
+```json
+{
+  "resultType": "check",
+  "project": "order-service",
+  "count": 1,
+  "results": [
+    {
+      "className": "co.fanki.order.application.OrderController",
+      "check": "createOrder",
+      "exists": true,
+      "methodName": "createOrder",
+      "description": "Creates a new order for a customer",
+      "httpEndpoint": "POST /api/orders"
+    }
+  ]
+}
+```
+
+Response when method does not exist:
+```json
+{
+  "resultType": "check",
+  "project": "order-service",
+  "count": 1,
+  "results": [
+    {
+      "className": "co.fanki.order.application.OrderController",
+      "check": "deleteOrder",
+      "exists": false
+    }
+  ]
+}
+```
+
+#### Quick reference
+
+| Query | Description |
+|-------|-------------|
+| `proj:endpoints` | All HTTP endpoints |
+| `proj:endpoints:+logic` | Endpoints with business logic |
+| `proj:classes` | All classes |
+| `proj:classes:+dependencies` | Classes with outgoing deps |
+| `proj:classes:+dependents` | Classes with incoming deps |
+| `proj:classes:+methods` | Classes with method summaries |
+| `proj:entrypoints` | Entry points (controllers, listeners) |
+| `proj:entrypoints:+logic` | Entry points with business logic |
+| `proj:UserService` | Class overview |
+| `proj:UserService:+logic` | Class overview with logic in methods |
+| `proj:UserService:methods` | All methods of a class |
+| `proj:UserService:methods:+logic` | Methods with business logic |
+| `proj:UserService:method:create` | Single method detail |
+| `proj:UserService:dependencies` | Outgoing dependencies |
+| `proj:UserService:dependents` | Incoming dependents |
+| `proj:UserService:?create` | Check if method `create` exists |
+
 ## Installation
 
 ### Requirements
@@ -1050,6 +1308,7 @@ http://localhost:8080/swagger-ui/index.html
 | `/api/context/class?className=` | GET | Alternative class context endpoint (query param) |
 | `/api/context/method?className=&methodName=` | GET | Get method context with business logic and dependencies |
 | `/api/context/stack-trace` | POST | Correlate a stack trace with business context |
+| `/api/graph/query` | POST | Query the in-memory project graph with the [Graph Query DSL](#graph-query-dsl) |
 | `/health` | GET | Health check |
 
 ### Analyzing a repository

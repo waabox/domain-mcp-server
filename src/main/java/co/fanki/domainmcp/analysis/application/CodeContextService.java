@@ -221,6 +221,10 @@ public class CodeContextService {
                     allClasses.add(sourceClass);
                     graph.bindClassId(identifier, sourceClass.id());
 
+                    // Populate graph node metadata
+                    graph.setNodeInfo(identifier,
+                            classType.name(), null);
+
                     final List<SourceMethod> classMethods =
                             new ArrayList<>();
 
@@ -237,6 +241,17 @@ public class CodeContextService {
 
                         allMethods.add(sourceMethod);
                         classMethods.add(sourceMethod);
+
+                        // Populate graph method metadata
+                        graph.addMethodInfo(identifier,
+                                new ProjectGraph.MethodInfo(
+                                        sm.methodName(),
+                                        null,
+                                        List.of(),
+                                        sm.exceptions(),
+                                        sm.httpMethod(),
+                                        sm.httpPath(),
+                                        sm.lineNumber()));
                     }
 
                     methodsByIdentifier.put(identifier, classMethods);
@@ -638,6 +653,10 @@ public class CodeContextService {
             }
         }
 
+        // Build method enrichment data for the graph
+        final Map<String, ProjectGraph.MethodEnrichmentData>
+                methodEnrichments = new HashMap<>();
+
         // Update methods
         for (final MethodEnrichment methodEnrich : result.methods()) {
             final String methodName = normalizeMethodName(
@@ -653,11 +672,31 @@ public class CodeContextService {
                         methodEnrich.description(),
                         methodEnrich.businessLogic(),
                         method.get().exceptions());
+
+                methodEnrichments.put(methodName,
+                        new ProjectGraph.MethodEnrichmentData(
+                                methodEnrich.description(),
+                                methodEnrich.businessLogic()));
             } else {
                 LOG.debug("Method {} not found for enrichment in class {}",
                         methodName, result.fullClassName());
             }
         }
+
+        // Update the in-memory graph with enrichment data
+        final String resolvedClassType;
+        if (classType != null) {
+            resolvedClassType = classType.name();
+        } else {
+            final ProjectGraph.NodeInfo existing =
+                    graph.nodeInfo(result.fullClassName());
+            resolvedClassType = existing != null
+                    ? existing.classType() : "OTHER";
+        }
+
+        graph.applyEnrichment(result.fullClassName(),
+                resolvedClassType, result.description(),
+                methodEnrichments);
     }
 
     /**

@@ -19,6 +19,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * fast lookup for query-time neighbor resolution. Graphs are keyed
  * by project ID, with a secondary index by project name.</p>
  *
+ * <p>Graphs include full metadata (classType, descriptions, methods)
+ * serialized in the JSON. Projects analyzed before metadata support
+ * must be re-analyzed to populate the metadata.</p>
+ *
  * @author waabox(emiliano[at]fanki[dot]co)
  */
 @Component

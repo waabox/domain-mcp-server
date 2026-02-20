@@ -1,6 +1,9 @@
 server:
   port: 8080
 
+app:
+  url: ${APP_URL:http://localhost:8080}
+
 spring:
   application:
     name: domain-mcp-server

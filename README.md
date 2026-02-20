@@ -52,6 +52,7 @@ Designed to run standalone or in concert with other MCP servers such as Datadog 
   - [get_class_dependencies](#get_class_dependencies)
   - [get_project_overview](#get_project_overview)
   - [get_service_api](#get_service_api)
+  - [graph_query](#graph_query)
   - [REST-Only Endpoints](#rest-only-endpoints)
 - [Graph Query DSL](#graph-query-dsl)
   - [Syntax](#syntax)
@@ -214,7 +215,7 @@ Claude will automatically chain Datadog tools (`trace_list_error_traces`, `log_c
 
 ## MCP Tools
 
-The server exposes **8 MCP tools** via stdio transport. All tools return JSON responses.
+The server exposes **9 MCP tools** via stdio transport. All tools return JSON responses.
 
 ---
 
@@ -962,6 +963,82 @@ Get the public API surface of an indexed microservice. Returns all HTTP endpoint
 
 ---
 
+### `graph_query`
+
+Query the in-memory project graph using a colon-separated DSL. Supports listing endpoints, classes, and entry points; navigating to any vertex (class) by name; sub-navigation (methods, dependencies, dependents); projection modifiers (`+logic`, `+dependencies`); and existence checks (`?methodName`). All queries resolve from memory, no DB access. See [Graph Query DSL](#graph-query-dsl) for full syntax documentation.
+
+**Parameters**:
+
+| Parameter | Required | Type | Description |
+|-----------|----------|------|-------------|
+| `query` | yes | string | Colon-separated graph query (e.g., `order-service:endpoints:+logic`) |
+
+**Response fields**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `resultType` | string | Type of result (`endpoints`, `classes`, `entrypoints`, `class`, `methods`, `method`, `dependencies`, `dependents`, `check`) |
+| `project` | string | Project name |
+| `count` | number | Number of results |
+| `results` | array | Result data (varies by query type) |
+
+**Example requests**:
+
+```json
+{ "query": "order-service:endpoints" }
+```
+```json
+{ "query": "order-service:endpoints:+logic" }
+```
+```json
+{ "query": "order-service:UserService:methods" }
+```
+```json
+{ "query": "order-service:UserService:?createUser" }
+```
+
+**Example response** (endpoints):
+
+```json
+{
+  "resultType": "endpoints",
+  "project": "order-service",
+  "count": 2,
+  "results": [
+    {
+      "className": "co.fanki.order.application.OrderController",
+      "classType": "CONTROLLER",
+      "methodName": "createOrder",
+      "httpMethod": "POST",
+      "httpPath": "/api/orders",
+      "description": "Creates a new order"
+    }
+  ]
+}
+```
+
+**Example response** (check):
+
+```json
+{
+  "resultType": "check",
+  "project": "order-service",
+  "count": 1,
+  "results": [
+    {
+      "className": "co.fanki.order.application.OrderController",
+      "check": "createOrder",
+      "exists": true,
+      "methodName": "createOrder",
+      "description": "Creates a new order for a customer",
+      "httpEndpoint": "POST /api/orders"
+    }
+  ]
+}
+```
+
+---
+
 ### REST-Only Endpoints
 
 These operations are available via REST API (port 8080) but not as MCP tools. See the [Indexing Projects](#indexing-projects) section for detailed usage.
@@ -1444,7 +1521,7 @@ Replace `/absolute/path/to/` with the actual path to the JAR on your machine. On
 
 ### 4. Verify the connection
 
-Restart Claude Code. The 8 domain-mcp-server tools (`list_projects`, `search_project`, `get_class_context`, `get_method_context`, `get_stack_trace_context`, `get_class_dependencies`, `get_project_overview`, `get_service_api`) should appear in your available tools.
+Restart Claude Code. The 9 domain-mcp-server tools (`list_projects`, `search_project`, `get_class_context`, `get_method_context`, `get_stack_trace_context`, `get_class_dependencies`, `get_project_overview`, `get_service_api`, `graph_query`) should appear in your available tools.
 
 ### How it works
 

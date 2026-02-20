@@ -2,6 +2,9 @@ package co.fanki.domainmcp.config;
 
 import co.fanki.domainmcp.analysis.application.CodeContextService;
 import co.fanki.domainmcp.analysis.application.CodeContextService.StackFrame;
+import co.fanki.domainmcp.analysis.application.GraphQuery;
+import co.fanki.domainmcp.analysis.application.GraphQueryService;
+import co.fanki.domainmcp.analysis.application.GraphQueryService.GraphQueryResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
@@ -175,6 +178,19 @@ public class McpStdioServerConfiguration {
             }
             """;
 
+    private static final String GRAPH_QUERY_SCHEMA = """
+            {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "description": "Colon-separated graph query. Syntax: project:target[:navigation]*[:+include]*[:?check]. Keywords: endpoints, classes, entrypoints. Examples: order-service:endpoints, order-service:endpoints:+logic, order-service:UserService:methods:+logic, order-service:UserService:?createUser"
+                }
+              },
+              "required": ["query"]
+            }
+            """;
+
     /**
      * Creates the stdio transport provider for MCP communication.
      *
@@ -199,6 +215,7 @@ public class McpStdioServerConfiguration {
     McpSyncServer mcpSyncServer(
             final StdioServerTransportProvider transportProvider,
             final CodeContextService codeContextService,
+            final GraphQueryService graphQueryService,
             final ObjectMapper objectMapper) {
 
         final McpSyncServer server = McpServer.sync(transportProvider)
@@ -217,10 +234,11 @@ public class McpStdioServerConfiguration {
                         getProjectOverviewTool(codeContextService,
                                 objectMapper),
                         getServiceApiTool(codeContextService, objectMapper),
-                        searchProjectTool(codeContextService, objectMapper)))
+                        searchProjectTool(codeContextService, objectMapper),
+                        graphQueryTool(graphQueryService, objectMapper)))
                 .build();
 
-        LOG.info("MCP stdio server initialized with 8 tools");
+        LOG.info("MCP stdio server initialized with 9 tools");
 
         return server;
     }
@@ -487,6 +505,44 @@ public class McpStdioServerConfiguration {
                     try {
                         final var result = codeContextService
                                 .searchProject(projectName, query);
+                        return toCallToolResult(objectMapper, result);
+                    } catch (final Exception e) {
+                        return errorResult(e);
+                    }
+                }
+        );
+    }
+
+    private McpServerFeatures.SyncToolSpecification graphQueryTool(
+            final GraphQueryService graphQueryService,
+            final ObjectMapper objectMapper) {
+
+        return new McpServerFeatures.SyncToolSpecification(
+                new Tool("graph_query",
+                        "Query the in-memory project graph using a"
+                                + " colon-separated DSL. Supports listing"
+                                + " endpoints, classes, and entry points;"
+                                + " navigating to any vertex (class) by"
+                                + " name; sub-navigation (methods,"
+                                + " dependencies, dependents); projection"
+                                + " modifiers (+logic, +dependencies); and"
+                                + " existence checks (?methodName). All"
+                                + " queries resolve from memory, no DB"
+                                + " access. Examples:"
+                                + " order-service:endpoints,"
+                                + " order-service:endpoints:+logic,"
+                                + " order-service:UserService:methods,"
+                                + " order-service:UserService:?create",
+                        GRAPH_QUERY_SCHEMA),
+                (exchange, arguments) -> {
+                    final String query =
+                            (String) arguments.get("query");
+
+                    try {
+                        final GraphQuery parsed =
+                                GraphQuery.parse(query);
+                        final GraphQueryResult result =
+                                graphQueryService.execute(parsed);
                         return toCallToolResult(objectMapper, result);
                     } catch (final Exception e) {
                         return errorResult(e);

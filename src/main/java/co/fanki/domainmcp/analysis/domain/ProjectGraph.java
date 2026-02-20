@@ -43,6 +43,48 @@ public final class ProjectGraph {
      */
     public record MethodParameterLink(int position, String targetIdentifier) {}
 
+    /**
+     * Metadata about a node (class/module) in the graph.
+     *
+     * @param classType the class type (e.g., CONTROLLER, SERVICE)
+     * @param description the business description from Claude enrichment
+     */
+    public record NodeInfo(String classType, String description) {}
+
+    /**
+     * Metadata about a method within a node.
+     *
+     * @param methodName the method name
+     * @param description the business description
+     * @param businessLogic the business logic steps
+     * @param exceptions the exceptions this method may throw
+     * @param httpMethod the HTTP verb if this is a REST handler
+     * @param httpPath the HTTP path if this is a REST handler
+     * @param lineNumber the line number in the source file
+     */
+    public record MethodInfo(
+            String methodName,
+            String description,
+            List<String> businessLogic,
+            List<String> exceptions,
+            String httpMethod,
+            String httpPath,
+            Integer lineNumber) {
+
+        /** Checks if this method is an HTTP endpoint. */
+        public boolean isHttpEndpoint() {
+            return httpMethod != null && httpPath != null;
+        }
+
+        /** Returns the full HTTP endpoint string, or null. */
+        public String httpEndpoint() {
+            if (!isHttpEndpoint()) {
+                return null;
+            }
+            return httpMethod + " " + httpPath;
+        }
+    }
+
     /** Maps identifier to source file path. */
     private final Map<String, String> nodes;
 
@@ -63,6 +105,12 @@ public final class ProjectGraph {
     private final Map<String, Map<String, List<MethodParameterLink>>>
             methodParameters;
 
+    /** Maps identifier to node metadata (classType, description). */
+    private final Map<String, NodeInfo> nodeInfoMap;
+
+    /** Maps identifier to its method metadata list. */
+    private final Map<String, List<MethodInfo>> methodInfoMap;
+
     /**
      * Creates an empty project graph.
      */
@@ -72,6 +120,8 @@ public final class ProjectGraph {
         this.entryPoints = new LinkedHashSet<>();
         this.classIdMapping = new HashMap<>();
         this.methodParameters = new HashMap<>();
+        this.nodeInfoMap = new HashMap<>();
+        this.methodInfoMap = new HashMap<>();
     }
 
     private ProjectGraph(
@@ -80,7 +130,9 @@ public final class ProjectGraph {
             final Set<String> theEntryPoints,
             final Map<String, String> theClassIdMapping,
             final Map<String, Map<String, List<MethodParameterLink>>>
-                    theMethodParameters) {
+                    theMethodParameters,
+            final Map<String, NodeInfo> theNodeInfoMap,
+            final Map<String, List<MethodInfo>> theMethodInfoMap) {
         this.nodes = new LinkedHashMap<>(theNodes);
         this.edges = new HashMap<>();
         for (final Map.Entry<String, Set<String>> entry : theEdges.entrySet()) {
@@ -90,6 +142,13 @@ public final class ProjectGraph {
         this.entryPoints = new LinkedHashSet<>(theEntryPoints);
         this.classIdMapping = new HashMap<>(theClassIdMapping);
         this.methodParameters = deepCopyMethodParameters(theMethodParameters);
+        this.nodeInfoMap = new HashMap<>(theNodeInfoMap);
+        this.methodInfoMap = new HashMap<>();
+        for (final Map.Entry<String, List<MethodInfo>> entry
+                : theMethodInfoMap.entrySet()) {
+            this.methodInfoMap.put(entry.getKey(),
+                    new ArrayList<>(entry.getValue()));
+        }
     }
 
     /**
@@ -433,6 +492,140 @@ public final class ProjectGraph {
         return Collections.unmodifiableSet(nodes.keySet());
     }
 
+    // -- Node and Method Metadata -------------------------------------------
+
+    /**
+     * Sets the metadata for a node in the graph.
+     *
+     * @param identifier the class identifier
+     * @param classType the class type string (e.g., "CONTROLLER")
+     * @param description the business description
+     */
+    public void setNodeInfo(final String identifier,
+            final String classType, final String description) {
+        Preconditions.requireNonBlank(identifier, "Identifier is required");
+        nodeInfoMap.put(identifier, new NodeInfo(classType, description));
+    }
+
+    /**
+     * Returns the node metadata for a given identifier.
+     *
+     * @param identifier the class identifier
+     * @return the node info, or null if not set
+     */
+    public NodeInfo nodeInfo(final String identifier) {
+        return nodeInfoMap.get(identifier);
+    }
+
+    /**
+     * Adds a method metadata entry for a node.
+     *
+     * @param identifier the class identifier
+     * @param methodInfo the method metadata
+     */
+    public void addMethodInfo(final String identifier,
+            final MethodInfo methodInfo) {
+        Preconditions.requireNonBlank(identifier, "Identifier is required");
+        methodInfoMap.computeIfAbsent(identifier, k -> new ArrayList<>())
+                .add(methodInfo);
+    }
+
+    /**
+     * Returns the method metadata list for a given identifier.
+     *
+     * @param identifier the class identifier
+     * @return unmodifiable list of method info, empty if none
+     */
+    public List<MethodInfo> methods(final String identifier) {
+        final List<MethodInfo> list = methodInfoMap.get(identifier);
+        if (list == null) {
+            return List.of();
+        }
+        return Collections.unmodifiableList(list);
+    }
+
+    /**
+     * Updates the enrichment data for a node and its methods.
+     *
+     * <p>Called after Claude enrichment to update descriptions and
+     * business logic without replacing structural data.</p>
+     *
+     * @param identifier the class identifier
+     * @param classType the (possibly corrected) class type
+     * @param classDescription the business description for the class
+     * @param methodEnrichments map of methodName to enrichment data
+     */
+    public void applyEnrichment(final String identifier,
+            final String classType, final String classDescription,
+            final Map<String, MethodEnrichmentData> methodEnrichments) {
+
+        nodeInfoMap.put(identifier,
+                new NodeInfo(classType, classDescription));
+
+        final List<MethodInfo> existing = methodInfoMap.get(identifier);
+        if (existing == null || methodEnrichments == null) {
+            return;
+        }
+
+        final List<MethodInfo> updated = new ArrayList<>();
+        for (final MethodInfo mi : existing) {
+            final MethodEnrichmentData enrichment =
+                    methodEnrichments.get(mi.methodName());
+            if (enrichment != null) {
+                updated.add(new MethodInfo(
+                        mi.methodName(),
+                        enrichment.description(),
+                        enrichment.businessLogic(),
+                        mi.exceptions(),
+                        mi.httpMethod(),
+                        mi.httpPath(),
+                        mi.lineNumber()));
+            } else {
+                updated.add(mi);
+            }
+        }
+        methodInfoMap.put(identifier, updated);
+    }
+
+    /**
+     * Data for enriching a method with Claude-provided descriptions.
+     *
+     * @param description the business description
+     * @param businessLogic the business logic steps
+     */
+    public record MethodEnrichmentData(
+            String description,
+            List<String> businessLogic) {}
+
+    /**
+     * Returns all HTTP endpoint methods across all nodes.
+     *
+     * @return unmodifiable list of pairs (identifier, MethodInfo) for
+     *         endpoints
+     */
+    public List<Map.Entry<String, MethodInfo>> allEndpoints() {
+        final List<Map.Entry<String, MethodInfo>> endpoints =
+                new ArrayList<>();
+        for (final Map.Entry<String, List<MethodInfo>> entry
+                : methodInfoMap.entrySet()) {
+            for (final MethodInfo mi : entry.getValue()) {
+                if (mi.isHttpEndpoint()) {
+                    endpoints.add(Map.entry(entry.getKey(), mi));
+                }
+            }
+        }
+        return Collections.unmodifiableList(endpoints);
+    }
+
+    /**
+     * Checks if this graph has enrichment metadata loaded.
+     *
+     * @return true if at least one node has metadata
+     */
+    public boolean hasMetadata() {
+        return !nodeInfoMap.isEmpty();
+    }
+
     /**
      * Serializes this graph to a JSON string for database persistence.
      *
@@ -490,6 +683,64 @@ public final class ProjectGraph {
             methodParamsObj.set(classEntry.getKey(), methodsObj);
         }
         root.set("methodParameters", methodParamsObj);
+
+        // Serialize node info (classType, description)
+        final ObjectNode nodeInfoObj = MAPPER.createObjectNode();
+        for (final Map.Entry<String, NodeInfo> entry
+                : nodeInfoMap.entrySet()) {
+            final ObjectNode infoObj = MAPPER.createObjectNode();
+            final NodeInfo ni = entry.getValue();
+            if (ni.classType() != null) {
+                infoObj.put("classType", ni.classType());
+            }
+            if (ni.description() != null) {
+                infoObj.put("description", ni.description());
+            }
+            nodeInfoObj.set(entry.getKey(), infoObj);
+        }
+        root.set("nodeInfo", nodeInfoObj);
+
+        // Serialize method info
+        final ObjectNode methodInfoObj = MAPPER.createObjectNode();
+        for (final Map.Entry<String, List<MethodInfo>> classEntry
+                : methodInfoMap.entrySet()) {
+            final ArrayNode methodsArray = MAPPER.createArrayNode();
+            for (final MethodInfo mi : classEntry.getValue()) {
+                final ObjectNode mObj = MAPPER.createObjectNode();
+                mObj.put("methodName", mi.methodName());
+                if (mi.description() != null) {
+                    mObj.put("description", mi.description());
+                }
+                if (mi.businessLogic() != null
+                        && !mi.businessLogic().isEmpty()) {
+                    final ArrayNode blArray = MAPPER.createArrayNode();
+                    for (final String step : mi.businessLogic()) {
+                        blArray.add(step);
+                    }
+                    mObj.set("businessLogic", blArray);
+                }
+                if (mi.exceptions() != null
+                        && !mi.exceptions().isEmpty()) {
+                    final ArrayNode exArray = MAPPER.createArrayNode();
+                    for (final String ex : mi.exceptions()) {
+                        exArray.add(ex);
+                    }
+                    mObj.set("exceptions", exArray);
+                }
+                if (mi.httpMethod() != null) {
+                    mObj.put("httpMethod", mi.httpMethod());
+                }
+                if (mi.httpPath() != null) {
+                    mObj.put("httpPath", mi.httpPath());
+                }
+                if (mi.lineNumber() != null) {
+                    mObj.put("lineNumber", mi.lineNumber());
+                }
+                methodsArray.add(mObj);
+            }
+            methodInfoObj.set(classEntry.getKey(), methodsArray);
+        }
+        root.set("methodInfo", methodInfoObj);
 
         try {
             return MAPPER.writeValueAsString(root);
@@ -583,8 +834,69 @@ public final class ProjectGraph {
                 }
             }
 
+            // Deserialize node info
+            final Map<String, NodeInfo> nodeInfos = new HashMap<>();
+            final JsonNode niNode = root.get("nodeInfo");
+            if (niNode != null && niNode.isObject()) {
+                final var niFields = niNode.fields();
+                while (niFields.hasNext()) {
+                    final var niEntry = niFields.next();
+                    final JsonNode val = niEntry.getValue();
+                    final String ct = val.has("classType")
+                            ? val.get("classType").asText() : null;
+                    final String desc = val.has("description")
+                            ? val.get("description").asText() : null;
+                    nodeInfos.put(niEntry.getKey(),
+                            new NodeInfo(ct, desc));
+                }
+            }
+
+            // Deserialize method info
+            final Map<String, List<MethodInfo>> methodInfos =
+                    new HashMap<>();
+            final JsonNode miNode = root.get("methodInfo");
+            if (miNode != null && miNode.isObject()) {
+                final var miFields = miNode.fields();
+                while (miFields.hasNext()) {
+                    final var miEntry = miFields.next();
+                    final List<MethodInfo> methods = new ArrayList<>();
+                    for (final JsonNode mNode : miEntry.getValue()) {
+                        final String mn = mNode.get("methodName").asText();
+                        final String desc = mNode.has("description")
+                                ? mNode.get("description").asText() : null;
+
+                        final List<String> bl = new ArrayList<>();
+                        if (mNode.has("businessLogic")) {
+                            for (final JsonNode b
+                                    : mNode.get("businessLogic")) {
+                                bl.add(b.asText());
+                            }
+                        }
+
+                        final List<String> exs = new ArrayList<>();
+                        if (mNode.has("exceptions")) {
+                            for (final JsonNode ex
+                                    : mNode.get("exceptions")) {
+                                exs.add(ex.asText());
+                            }
+                        }
+
+                        final String hm = mNode.has("httpMethod")
+                                ? mNode.get("httpMethod").asText() : null;
+                        final String hp = mNode.has("httpPath")
+                                ? mNode.get("httpPath").asText() : null;
+                        final Integer ln = mNode.has("lineNumber")
+                                ? mNode.get("lineNumber").asInt() : null;
+
+                        methods.add(new MethodInfo(mn, desc, bl, exs,
+                                hm, hp, ln));
+                    }
+                    methodInfos.put(miEntry.getKey(), methods);
+                }
+            }
+
             return new ProjectGraph(nodes, edges, entryPoints, classIds,
-                    methodParams);
+                    methodParams, nodeInfos, methodInfos);
 
         } catch (final JsonProcessingException e) {
             throw new RuntimeException(

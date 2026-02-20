@@ -1028,6 +1028,186 @@ class ProjectGraphTest {
                 validateLinks.get(0).targetIdentifier());
     }
 
+    // -- NodeInfo and MethodInfo -------------------------------------------
+
+    @Test
+    void whenSettingNodeInfo_shouldBeRetrievable() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.UserService", "src/UserService.java");
+
+        graph.setNodeInfo("co.fanki.UserService",
+                "SERVICE", "Handles user logic");
+
+        final ProjectGraph.NodeInfo info =
+                graph.nodeInfo("co.fanki.UserService");
+        assertNotNull(info);
+        assertEquals("SERVICE", info.classType());
+        assertEquals("Handles user logic", info.description());
+    }
+
+    @Test
+    void whenAddingMethodInfo_shouldBeRetrievable() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.Controller", "src/Controller.java");
+
+        graph.addMethodInfo("co.fanki.Controller",
+                new ProjectGraph.MethodInfo(
+                        "getUsers", "Lists users",
+                        List.of("Query DB", "Map DTOs"),
+                        List.of("NotFoundException"),
+                        "GET", "/api/users", 25));
+
+        final List<ProjectGraph.MethodInfo> methods =
+                graph.methods("co.fanki.Controller");
+        assertEquals(1, methods.size());
+
+        final ProjectGraph.MethodInfo mi = methods.get(0);
+        assertEquals("getUsers", mi.methodName());
+        assertEquals("Lists users", mi.description());
+        assertEquals(List.of("Query DB", "Map DTOs"), mi.businessLogic());
+        assertEquals(List.of("NotFoundException"), mi.exceptions());
+        assertTrue(mi.isHttpEndpoint());
+        assertEquals("GET /api/users", mi.httpEndpoint());
+        assertEquals(25, mi.lineNumber());
+    }
+
+    @Test
+    void whenQueryingMethodsForUnknownNode_shouldReturnEmptyList() {
+        final ProjectGraph graph = new ProjectGraph();
+
+        assertTrue(graph.methods("co.fanki.Unknown").isEmpty());
+    }
+
+    @Test
+    void whenMethodInfoIsNotEndpoint_shouldReportNotEndpoint() {
+        final ProjectGraph.MethodInfo mi = new ProjectGraph.MethodInfo(
+                "process", "Processes", List.of(), List.of(),
+                null, null, 10);
+
+        assertFalse(mi.isHttpEndpoint());
+        assertNull(mi.httpEndpoint());
+    }
+
+    @Test
+    void whenQueryingAllEndpoints_shouldReturnOnlyHttpMethods() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.Controller", "src/Controller.java");
+        graph.addNode("co.fanki.Service", "src/Service.java");
+
+        graph.addMethodInfo("co.fanki.Controller",
+                new ProjectGraph.MethodInfo(
+                        "getUsers", null, List.of(), List.of(),
+                        "GET", "/api/users", 10));
+        graph.addMethodInfo("co.fanki.Service",
+                new ProjectGraph.MethodInfo(
+                        "findAll", null, List.of(), List.of(),
+                        null, null, 20));
+
+        final List<Map.Entry<String, ProjectGraph.MethodInfo>> endpoints =
+                graph.allEndpoints();
+
+        assertEquals(1, endpoints.size());
+        assertEquals("co.fanki.Controller", endpoints.get(0).getKey());
+        assertEquals("getUsers",
+                endpoints.get(0).getValue().methodName());
+    }
+
+    @Test
+    void whenApplyingEnrichment_shouldUpdateDescriptionsAndLogic() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.Service", "src/Service.java");
+        graph.setNodeInfo("co.fanki.Service", "SERVICE", null);
+        graph.addMethodInfo("co.fanki.Service",
+                new ProjectGraph.MethodInfo(
+                        "process", null, List.of(), List.of(),
+                        null, null, 10));
+
+        graph.applyEnrichment("co.fanki.Service", "SERVICE",
+                "Business processing service",
+                Map.of("process",
+                        new ProjectGraph.MethodEnrichmentData(
+                                "Processes incoming data",
+                                List.of("Validate", "Transform",
+                                        "Persist"))));
+
+        final ProjectGraph.NodeInfo ni =
+                graph.nodeInfo("co.fanki.Service");
+        assertEquals("Business processing service", ni.description());
+
+        final ProjectGraph.MethodInfo mi =
+                graph.methods("co.fanki.Service").get(0);
+        assertEquals("Processes incoming data", mi.description());
+        assertEquals(List.of("Validate", "Transform", "Persist"),
+                mi.businessLogic());
+    }
+
+    @Test
+    void whenSerializingMetadata_shouldRoundTrip() {
+        final ProjectGraph original = new ProjectGraph();
+        original.addNode("co.fanki.Controller", "src/Controller.java");
+
+        original.setNodeInfo("co.fanki.Controller",
+                "CONTROLLER", "HTTP handler");
+        original.addMethodInfo("co.fanki.Controller",
+                new ProjectGraph.MethodInfo(
+                        "create", "Creates something",
+                        List.of("Validate", "Save"),
+                        List.of("BadRequest"),
+                        "POST", "/api/items", 30));
+
+        final ProjectGraph restored =
+                ProjectGraph.fromJson(original.toJson());
+
+        final ProjectGraph.NodeInfo ni =
+                restored.nodeInfo("co.fanki.Controller");
+        assertNotNull(ni);
+        assertEquals("CONTROLLER", ni.classType());
+        assertEquals("HTTP handler", ni.description());
+
+        final List<ProjectGraph.MethodInfo> methods =
+                restored.methods("co.fanki.Controller");
+        assertEquals(1, methods.size());
+
+        final ProjectGraph.MethodInfo mi = methods.get(0);
+        assertEquals("create", mi.methodName());
+        assertEquals("Creates something", mi.description());
+        assertEquals(List.of("Validate", "Save"), mi.businessLogic());
+        assertEquals(List.of("BadRequest"), mi.exceptions());
+        assertEquals("POST", mi.httpMethod());
+        assertEquals("/api/items", mi.httpPath());
+        assertEquals(30, mi.lineNumber());
+    }
+
+    @Test
+    void whenDeserializingOldFormat_shouldHaveNoMetadata() {
+        final String oldJson = "{\"nodes\":{\"co.fanki.A\":"
+                + "{\"sourceFile\":\"src/A.java\"}},\"edges\":{},"
+                + "\"entryPoints\":[]}";
+
+        final ProjectGraph restored = ProjectGraph.fromJson(oldJson);
+
+        assertFalse(restored.hasMetadata());
+        assertNull(restored.nodeInfo("co.fanki.A"));
+        assertTrue(restored.methods("co.fanki.A").isEmpty());
+    }
+
+    @Test
+    void whenGraphHasMetadata_hasMetadataShouldReturnTrue() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.A", "src/A.java");
+        graph.setNodeInfo("co.fanki.A", "SERVICE", "desc");
+
+        assertTrue(graph.hasMetadata());
+    }
+
+    @Test
+    void whenGraphHasNoMetadata_hasMetadataShouldReturnFalse() {
+        final ProjectGraph graph = new ProjectGraph();
+        graph.addNode("co.fanki.A", "src/A.java");
+
+        assertFalse(graph.hasMetadata());
+    }
+
     // -- helpers -----------------------------------------------------------
 
     /**

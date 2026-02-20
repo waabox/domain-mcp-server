@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -99,7 +100,7 @@ class GraphQueryServiceTest {
         when(graphService.getGraphByProjectName("unknown"))
                 .thenReturn(null);
 
-        final GraphQuery query = GraphQueryParser.parse(
+        final GraphQuery query = GraphQuery.parse(
                 "unknown:endpoints");
 
         assertThrows(DomainException.class,
@@ -115,7 +116,7 @@ class GraphQueryServiceTest {
                 .thenReturn(graph);
 
         final GraphQuery query =
-                GraphQueryParser.parse("my-project:endpoints");
+                GraphQuery.parse("my-project:endpoints");
         final GraphQueryResult result = queryService.execute(query);
 
         assertEquals("endpoints", result.resultType());
@@ -128,18 +129,32 @@ class GraphQueryServiceTest {
     }
 
     @Test
-    void whenQueryingEndpoints_givenLogicSegment_shouldIncludeBusinessLogic() {
+    void whenQueryingEndpoints_givenIncludeLogic_shouldIncludeIt() {
         final ProjectGraph graph = buildTestGraph();
         when(graphService.getGraphByProjectName("my-project"))
                 .thenReturn(graph);
 
         final GraphQuery query =
-                GraphQueryParser.parse("my-project:endpoints:logic");
+                GraphQuery.parse("my-project:endpoints:+logic");
         final GraphQueryResult result = queryService.execute(query);
 
         assertEquals(2, result.count());
         final Map<String, Object> first = result.results().get(0);
         assertTrue(first.containsKey("businessLogic"));
+    }
+
+    @Test
+    void whenQueryingEndpoints_givenNoInclude_shouldOmitLogic() {
+        final ProjectGraph graph = buildTestGraph();
+        when(graphService.getGraphByProjectName("my-project"))
+                .thenReturn(graph);
+
+        final GraphQuery query =
+                GraphQuery.parse("my-project:endpoints");
+        final GraphQueryResult result = queryService.execute(query);
+
+        final Map<String, Object> first = result.results().get(0);
+        assertFalse(first.containsKey("businessLogic"));
     }
 
     // -- classes -----------------------------------------------------------
@@ -151,7 +166,7 @@ class GraphQueryServiceTest {
                 .thenReturn(graph);
 
         final GraphQuery query =
-                GraphQueryParser.parse("my-project:classes");
+                GraphQuery.parse("my-project:classes");
         final GraphQueryResult result = queryService.execute(query);
 
         assertEquals("classes", result.resultType());
@@ -159,16 +174,18 @@ class GraphQueryServiceTest {
     }
 
     @Test
-    void whenQueryingClasses_givenDependenciesSegment_shouldIncludeDeps() {
+    void whenQueryingClasses_givenIncludeDependencies_shouldInclude() {
         final ProjectGraph graph = buildTestGraph();
         when(graphService.getGraphByProjectName("my-project"))
                 .thenReturn(graph);
 
         final GraphQuery query =
-                GraphQueryParser.parse("my-project:classes:dependencies");
+                GraphQuery.parse(
+                        "my-project:classes:+dependencies");
         final GraphQueryResult result = queryService.execute(query);
 
-        final Map<String, Object> controller = result.results().stream()
+        final Map<String, Object> controller = result.results()
+                .stream()
                 .filter(m -> "co.fanki.UserController"
                         .equals(m.get("className")))
                 .findFirst().orElseThrow();
@@ -180,6 +197,25 @@ class GraphQueryServiceTest {
         assertTrue(deps.contains("co.fanki.UserService"));
     }
 
+    @Test
+    void whenQueryingClasses_givenIncludeMethods_shouldInclude() {
+        final ProjectGraph graph = buildTestGraph();
+        when(graphService.getGraphByProjectName("my-project"))
+                .thenReturn(graph);
+
+        final GraphQuery query =
+                GraphQuery.parse("my-project:classes:+methods");
+        final GraphQueryResult result = queryService.execute(query);
+
+        final Map<String, Object> controller = result.results()
+                .stream()
+                .filter(m -> "co.fanki.UserController"
+                        .equals(m.get("className")))
+                .findFirst().orElseThrow();
+
+        assertTrue(controller.containsKey("methods"));
+    }
+
     // -- entrypoints -------------------------------------------------------
 
     @Test
@@ -189,7 +225,7 @@ class GraphQueryServiceTest {
                 .thenReturn(graph);
 
         final GraphQuery query =
-                GraphQueryParser.parse("my-project:entrypoints");
+                GraphQuery.parse("my-project:entrypoints");
         final GraphQueryResult result = queryService.execute(query);
 
         assertEquals("entrypoints", result.resultType());
@@ -198,16 +234,34 @@ class GraphQueryServiceTest {
                 result.results().get(0).get("className"));
     }
 
-    // -- class navigation --------------------------------------------------
+    @Test
+    void whenQueryingEntrypoints_givenIncludeLogic_shouldInclude() {
+        final ProjectGraph graph = buildTestGraph();
+        when(graphService.getGraphByProjectName("my-project"))
+                .thenReturn(graph);
+
+        final GraphQuery query = GraphQuery.parse(
+                "my-project:entrypoints:+logic");
+        final GraphQueryResult result = queryService.execute(query);
+
+        @SuppressWarnings("unchecked")
+        final List<Map<String, Object>> endpoints =
+                (List<Map<String, Object>>) result.results().get(0)
+                        .get("endpoints");
+
+        assertTrue(endpoints.get(0).containsKey("businessLogic"));
+    }
+
+    // -- vertex navigation (was class:) ------------------------------------
 
     @Test
-    void whenQueryingClass_givenSimpleName_shouldResolve() {
+    void whenQueryingVertex_givenSimpleName_shouldResolve() {
         final ProjectGraph graph = buildTestGraph();
         when(graphService.getGraphByProjectName("my-project"))
                 .thenReturn(graph);
 
         final GraphQuery query =
-                GraphQueryParser.parse("my-project:class:UserService");
+                GraphQuery.parse("my-project:UserService");
         final GraphQueryResult result = queryService.execute(query);
 
         assertEquals("class", result.resultType());
@@ -217,13 +271,13 @@ class GraphQueryServiceTest {
     }
 
     @Test
-    void whenQueryingClass_givenFullName_shouldResolve() {
+    void whenQueryingVertex_givenFullName_shouldResolve() {
         final ProjectGraph graph = buildTestGraph();
         when(graphService.getGraphByProjectName("my-project"))
                 .thenReturn(graph);
 
-        final GraphQuery query = GraphQueryParser.parse(
-                "my-project:class:co.fanki.UserService");
+        final GraphQuery query = GraphQuery.parse(
+                "my-project:co.fanki.UserService");
         final GraphQueryResult result = queryService.execute(query);
 
         assertEquals("co.fanki.UserService",
@@ -231,26 +285,26 @@ class GraphQueryServiceTest {
     }
 
     @Test
-    void whenQueryingClass_givenUnknownClass_shouldThrow() {
+    void whenQueryingVertex_givenUnknownClass_shouldThrow() {
         final ProjectGraph graph = buildTestGraph();
         when(graphService.getGraphByProjectName("my-project"))
                 .thenReturn(graph);
 
         final GraphQuery query =
-                GraphQueryParser.parse("my-project:class:Unknown");
+                GraphQuery.parse("my-project:Unknown");
 
         assertThrows(DomainException.class,
                 () -> queryService.execute(query));
     }
 
     @Test
-    void whenQueryingClassMethods_shouldReturnAllMethods() {
+    void whenQueryingVertexMethods_shouldReturnAll() {
         final ProjectGraph graph = buildTestGraph();
         when(graphService.getGraphByProjectName("my-project"))
                 .thenReturn(graph);
 
-        final GraphQuery query = GraphQueryParser.parse(
-                "my-project:class:UserService:methods");
+        final GraphQuery query = GraphQuery.parse(
+                "my-project:UserService:methods");
         final GraphQueryResult result = queryService.execute(query);
 
         assertEquals("methods", result.resultType());
@@ -258,13 +312,27 @@ class GraphQueryServiceTest {
     }
 
     @Test
-    void whenQueryingClassDependencies_shouldReturnOutgoing() {
+    void whenQueryingVertexMethods_givenIncludeLogic_shouldInclude() {
         final ProjectGraph graph = buildTestGraph();
         when(graphService.getGraphByProjectName("my-project"))
                 .thenReturn(graph);
 
-        final GraphQuery query = GraphQueryParser.parse(
-                "my-project:class:UserController:dependencies");
+        final GraphQuery query = GraphQuery.parse(
+                "my-project:UserService:methods:+logic");
+        final GraphQueryResult result = queryService.execute(query);
+
+        assertTrue(result.results().get(0)
+                .containsKey("businessLogic"));
+    }
+
+    @Test
+    void whenQueryingVertexDependencies_shouldReturnOutgoing() {
+        final ProjectGraph graph = buildTestGraph();
+        when(graphService.getGraphByProjectName("my-project"))
+                .thenReturn(graph);
+
+        final GraphQuery query = GraphQuery.parse(
+                "my-project:UserController:dependencies");
         final GraphQueryResult result = queryService.execute(query);
 
         assertEquals("dependencies", result.resultType());
@@ -274,13 +342,13 @@ class GraphQueryServiceTest {
     }
 
     @Test
-    void whenQueryingClassDependents_shouldReturnIncoming() {
+    void whenQueryingVertexDependents_shouldReturnIncoming() {
         final ProjectGraph graph = buildTestGraph();
         when(graphService.getGraphByProjectName("my-project"))
                 .thenReturn(graph);
 
-        final GraphQuery query = GraphQueryParser.parse(
-                "my-project:class:UserService:dependents");
+        final GraphQuery query = GraphQuery.parse(
+                "my-project:UserService:dependents");
         final GraphQueryResult result = queryService.execute(query);
 
         assertEquals("dependents", result.resultType());
@@ -290,13 +358,13 @@ class GraphQueryServiceTest {
     }
 
     @Test
-    void whenQueryingSingleMethod_shouldReturnMethodDetail() {
+    void whenQueryingSingleMethod_shouldReturnDetail() {
         final ProjectGraph graph = buildTestGraph();
         when(graphService.getGraphByProjectName("my-project"))
                 .thenReturn(graph);
 
-        final GraphQuery query = GraphQueryParser.parse(
-                "my-project:class:UserController:method:createUser");
+        final GraphQuery query = GraphQuery.parse(
+                "my-project:UserController:method:createUser");
         final GraphQueryResult result = queryService.execute(query);
 
         assertEquals("method", result.resultType());
@@ -308,28 +376,28 @@ class GraphQueryServiceTest {
     }
 
     @Test
-    void whenQueryingSingleMethod_givenUnknownMethod_shouldThrow() {
+    void whenQueryingSingleMethod_givenUnknown_shouldThrow() {
         final ProjectGraph graph = buildTestGraph();
         when(graphService.getGraphByProjectName("my-project"))
                 .thenReturn(graph);
 
-        final GraphQuery query = GraphQueryParser.parse(
-                "my-project:class:UserController:method:unknown");
+        final GraphQuery query = GraphQuery.parse(
+                "my-project:UserController:method:unknown");
 
         assertThrows(DomainException.class,
                 () -> queryService.execute(query));
     }
 
-    // -- class overview includes methods summary ---------------------------
+    // -- vertex overview includes methods summary --------------------------
 
     @Test
-    void whenQueryingClassOverview_shouldIncludeMethodSummaries() {
+    void whenQueryingVertexOverview_shouldIncludeMethodSummaries() {
         final ProjectGraph graph = buildTestGraph();
         when(graphService.getGraphByProjectName("my-project"))
                 .thenReturn(graph);
 
         final GraphQuery query =
-                GraphQueryParser.parse("my-project:class:UserController");
+                GraphQuery.parse("my-project:UserController");
         final GraphQueryResult result = queryService.execute(query);
 
         final Map<String, Object> classInfo = result.results().get(0);
@@ -338,5 +406,56 @@ class GraphQueryServiceTest {
         final List<Map<String, Object>> methods =
                 (List<Map<String, Object>>) classInfo.get("methods");
         assertEquals(2, methods.size());
+    }
+
+    // -- check mode (?) ----------------------------------------------------
+
+    @Test
+    void whenChecking_givenExistingMethod_shouldReturnTrue() {
+        final ProjectGraph graph = buildTestGraph();
+        when(graphService.getGraphByProjectName("my-project"))
+                .thenReturn(graph);
+
+        final GraphQuery query = GraphQuery.parse(
+                "my-project:UserController:?createUser");
+        final GraphQueryResult result = queryService.execute(query);
+
+        assertEquals("check", result.resultType());
+        assertEquals(1, result.count());
+        assertTrue((Boolean) result.results().get(0).get("exists"));
+        assertEquals("createUser",
+                result.results().get(0).get("methodName"));
+    }
+
+    @Test
+    void whenChecking_givenNonExistingMethod_shouldReturnFalse() {
+        final ProjectGraph graph = buildTestGraph();
+        when(graphService.getGraphByProjectName("my-project"))
+                .thenReturn(graph);
+
+        final GraphQuery query = GraphQuery.parse(
+                "my-project:UserController:?deleteUser");
+        final GraphQueryResult result = queryService.execute(query);
+
+        assertEquals("check", result.resultType());
+        assertFalse(
+                (Boolean) result.results().get(0).get("exists"));
+    }
+
+    @Test
+    void whenChecking_givenExistingMethod_shouldIncludeDetails() {
+        final ProjectGraph graph = buildTestGraph();
+        when(graphService.getGraphByProjectName("my-project"))
+                .thenReturn(graph);
+
+        final GraphQuery query = GraphQuery.parse(
+                "my-project:UserController:?getUsers");
+        final GraphQueryResult result = queryService.execute(query);
+
+        final Map<String, Object> item = result.results().get(0);
+        assertTrue((Boolean) item.get("exists"));
+        assertEquals("getUsers", item.get("methodName"));
+        assertEquals("Lists all users", item.get("description"));
+        assertEquals("GET /api/users", item.get("httpEndpoint"));
     }
 }

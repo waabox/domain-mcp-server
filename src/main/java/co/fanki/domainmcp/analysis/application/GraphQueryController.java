@@ -20,7 +20,8 @@ import java.util.Map;
  * <p>Accepts a colon-separated query string and resolves it entirely
  * from the in-memory graph cache. No database access at query time.</p>
  *
- * <p>Query syntax: {@code project:category[:segment1[:segment2[...]]]}</p>
+ * <p>Query syntax:
+ * {@code project:target[:navigation]*[:+include]*[:?check]}</p>
  *
  * @author waabox(emiliano[at]fanki[dot]co)
  */
@@ -56,7 +57,9 @@ public class GraphQueryController {
             description = "Executes a colon-separated query against"
                     + " the in-memory project graph."
                     + " Examples: stadium-service:endpoints,"
-                    + " stadium-service:class:UserService:methods")
+                    + " stadium-service:UserService:methods,"
+                    + " stadium-service:endpoints:+logic,"
+                    + " stadium-service:UserService:?createUser")
     public ResponseEntity<?> query(
             @RequestBody final QueryRequest request) {
 
@@ -64,7 +67,7 @@ public class GraphQueryController {
 
         try {
             final GraphQuery parsed =
-                    GraphQueryParser.parse(request.query());
+                    GraphQuery.parse(request.query());
 
             final GraphQueryResult result =
                     graphQueryService.execute(parsed);

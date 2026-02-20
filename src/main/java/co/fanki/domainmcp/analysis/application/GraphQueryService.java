@@ -18,6 +18,16 @@ import java.util.Set;
  * descriptions, methods, endpoints) is resolved from the
  * {@link ProjectGraph} held by {@link GraphService}.</p>
  *
+ * <p>Supports three query modes:</p>
+ * <ul>
+ *   <li><b>Keywords</b>: {@code endpoints}, {@code classes},
+ *       {@code entrypoints} — list operations</li>
+ *   <li><b>Vertex</b>: any non-keyword resolves as a vertex
+ *       identifier — navigates to that class</li>
+ *   <li><b>Check</b>: {@code ?value} — existence predicates
+ *       on a vertex</li>
+ * </ul>
+ *
  * @author waabox(emiliano[at]fanki[dot]co)
  */
 @Service
@@ -47,22 +57,27 @@ public class GraphQueryService {
         if (graph == null) {
             throw new DomainException(
                     "Project not found: " + query.project()
-                            + ". Use list_projects to see available projects.",
+                            + ". Use list_projects to see available"
+                            + " projects.",
                     "PROJECT_NOT_FOUND");
         }
 
-        return switch (query.category()) {
-            case ENDPOINTS -> executeEndpoints(query, graph);
-            case CLASSES -> executeClasses(query, graph);
-            case ENTRYPOINTS -> executeEntrypoints(query, graph);
-            case CLASS -> executeClass(query, graph);
+        final String target = query.firstNavigation();
+
+        return switch (target.toLowerCase()) {
+            case "endpoints" -> executeEndpoints(query, graph);
+            case "classes" -> executeClasses(query, graph);
+            case "entrypoints" -> executeEntrypoints(query, graph);
+            default -> executeVertex(query, graph, target);
         };
     }
+
+    // -- Keywords ------------------------------------------------------------
 
     private GraphQueryResult executeEndpoints(final GraphQuery query,
             final ProjectGraph graph) {
 
-        final boolean includeLogic = query.hasSegment("logic");
+        final boolean includeLogic = query.hasInclude("logic");
         final List<Map.Entry<String, ProjectGraph.MethodInfo>> endpoints =
                 graph.allEndpoints();
 
@@ -96,8 +111,9 @@ public class GraphQueryService {
     private GraphQueryResult executeClasses(final GraphQuery query,
             final ProjectGraph graph) {
 
-        final boolean includeDeps = query.hasSegment("dependencies");
-        final boolean includeDependents = query.hasSegment("dependents");
+        final boolean includeDeps = query.hasInclude("dependencies");
+        final boolean includeDependents = query.hasInclude("dependents");
+        final boolean includeMethods = query.hasInclude("methods");
 
         final Set<String> identifiers = graph.identifiers();
         final List<Map<String, Object>> results = new ArrayList<>();
@@ -108,7 +124,8 @@ public class GraphQueryService {
             final Map<String, Object> item = new LinkedHashMap<>();
             item.put("className", identifier);
             item.put("classType", ni != null ? ni.classType() : null);
-            item.put("description", ni != null ? ni.description() : null);
+            item.put("description",
+                    ni != null ? ni.description() : null);
             item.put("sourceFile", graph.sourceFile(identifier));
             item.put("entryPoint", graph.isEntryPoint(identifier));
 
@@ -119,6 +136,10 @@ public class GraphQueryService {
             if (includeDependents) {
                 item.put("dependents",
                         List.copyOf(graph.dependents(identifier)));
+            }
+            if (includeMethods) {
+                item.put("methods",
+                        methodSummaries(identifier, graph, false));
             }
 
             results.add(item);
@@ -131,7 +152,7 @@ public class GraphQueryService {
     private GraphQueryResult executeEntrypoints(final GraphQuery query,
             final ProjectGraph graph) {
 
-        final boolean includeLogic = query.hasSegment("logic");
+        final boolean includeLogic = query.hasInclude("logic");
         final Set<String> entryPoints = graph.entryPoints();
         final List<Map<String, Object>> results = new ArrayList<>();
 
@@ -142,13 +163,15 @@ public class GraphQueryService {
             final Map<String, Object> item = new LinkedHashMap<>();
             item.put("className", ep);
             item.put("classType", ni != null ? ni.classType() : null);
-            item.put("description", ni != null ? ni.description() : null);
+            item.put("description",
+                    ni != null ? ni.description() : null);
 
             final List<Map<String, Object>> endpointMethods =
                     new ArrayList<>();
             for (final ProjectGraph.MethodInfo mi : methods) {
                 if (mi.isHttpEndpoint()) {
-                    final Map<String, Object> mItem = new LinkedHashMap<>();
+                    final Map<String, Object> mItem =
+                            new LinkedHashMap<>();
                     mItem.put("methodName", mi.methodName());
                     mItem.put("httpEndpoint", mi.httpEndpoint());
                     mItem.put("description", mi.description());
@@ -167,61 +190,65 @@ public class GraphQueryService {
                 results.size(), results);
     }
 
-    private GraphQueryResult executeClass(final GraphQuery query,
-            final ProjectGraph graph) {
+    // -- Vertex navigation ---------------------------------------------------
 
-        final String className = query.firstSegment();
-        final String identifier = resolveClassName(className, graph);
+    private GraphQueryResult executeVertex(final GraphQuery query,
+            final ProjectGraph graph, final String target) {
+
+        final String identifier = resolveClassName(target, graph);
 
         if (identifier == null) {
             throw new DomainException(
-                    "Class not found: " + className
+                    "Class not found: " + target
                             + " in project " + query.project(),
                     "CLASS_NOT_FOUND");
         }
 
-        final List<String> subSegments = query.segmentsFrom(1);
-        final ProjectGraph.NodeInfo ni = graph.nodeInfo(identifier);
-
-        // sub-navigation: methods, dependencies, dependents, method
-        if (!subSegments.isEmpty()) {
-            final String nav = subSegments.get(0).toLowerCase();
-            return switch (nav) {
-                case "methods" -> classMethodsResult(
-                        identifier, ni, graph, query,
-                        subSegments.size() > 1 && "logic".equals(
-                                subSegments.get(1).toLowerCase()));
-                case "dependencies" -> classDepsResult(
-                        identifier, ni, graph, query, true);
-                case "dependents" -> classDepsResult(
-                        identifier, ni, graph, query, false);
-                case "method" -> {
-                    if (subSegments.size() < 2) {
-                        throw new DomainException(
-                                "Method name required."
-                                        + " Example: project:class:Foo"
-                                        + ":method:bar",
-                                "INVALID_QUERY");
-                    }
-                    yield singleMethodResult(identifier, ni, graph,
-                            query, subSegments.get(1));
-                }
-                default -> classOverviewResult(
-                        identifier, ni, graph, query);
-            };
+        // Check mode: project:Vertex:?methodName
+        if (query.hasCheck()) {
+            return executeMethodCheck(identifier, query, graph);
         }
 
-        return classOverviewResult(identifier, ni, graph, query);
+        final List<String> subNavs = query.navigationsFrom(1);
+        final ProjectGraph.NodeInfo ni = graph.nodeInfo(identifier);
+
+        if (subNavs.isEmpty()) {
+            return vertexOverview(identifier, ni, graph, query);
+        }
+
+        final String nav = subNavs.get(0).toLowerCase();
+        return switch (nav) {
+            case "methods" -> vertexMethods(
+                    identifier, graph, query);
+            case "dependencies" -> vertexDeps(
+                    identifier, graph, query, true);
+            case "dependents" -> vertexDeps(
+                    identifier, graph, query, false);
+            case "method" -> {
+                if (subNavs.size() < 2) {
+                    throw new DomainException(
+                            "Method name required."
+                                    + " Example: project:Foo"
+                                    + ":method:bar",
+                            "INVALID_QUERY");
+                }
+                yield vertexSingleMethod(identifier, graph,
+                        query, subNavs.get(1));
+            }
+            default -> vertexOverview(
+                    identifier, ni, graph, query);
+        };
     }
 
-    private GraphQueryResult classOverviewResult(
+    private GraphQueryResult vertexOverview(
             final String identifier, final ProjectGraph.NodeInfo ni,
             final ProjectGraph graph, final GraphQuery query) {
 
         final Map<String, Object> item = new LinkedHashMap<>();
         item.put("className", identifier);
         item.put("classType", ni != null ? ni.classType() : null);
-        item.put("description", ni != null ? ni.description() : null);
+        item.put("description",
+                ni != null ? ni.description() : null);
         item.put("sourceFile", graph.sourceFile(identifier));
         item.put("entryPoint", graph.isEntryPoint(identifier));
         item.put("dependencies",
@@ -229,34 +256,30 @@ public class GraphQueryService {
         item.put("dependents",
                 List.copyOf(graph.dependents(identifier)));
 
-        final List<Map<String, Object>> methodSummaries =
-                new ArrayList<>();
-        for (final ProjectGraph.MethodInfo mi : graph.methods(identifier)) {
-            final Map<String, Object> mItem = new LinkedHashMap<>();
-            mItem.put("methodName", mi.methodName());
-            mItem.put("description", mi.description());
-            if (mi.isHttpEndpoint()) {
-                mItem.put("httpEndpoint", mi.httpEndpoint());
-            }
-            methodSummaries.add(mItem);
-        }
-        item.put("methods", methodSummaries);
+        final boolean includeLogic = query.hasInclude("logic");
+        item.put("methods", methodSummaries(
+                identifier, graph, includeLogic));
 
         return new GraphQueryResult("class", query.project(),
                 1, List.of(item));
     }
 
-    private GraphQueryResult classMethodsResult(
-            final String identifier, final ProjectGraph.NodeInfo ni,
-            final ProjectGraph graph, final GraphQuery query,
-            final boolean includeLogic) {
+    private GraphQueryResult vertexMethods(
+            final String identifier, final ProjectGraph graph,
+            final GraphQuery query) {
 
+        final boolean includeLogic = query.hasInclude("logic");
         final List<Map<String, Object>> results = new ArrayList<>();
-        for (final ProjectGraph.MethodInfo mi : graph.methods(identifier)) {
+
+        for (final ProjectGraph.MethodInfo mi
+                : graph.methods(identifier)) {
+
             final Map<String, Object> item = new LinkedHashMap<>();
             item.put("methodName", mi.methodName());
             item.put("description", mi.description());
-            item.put("businessLogic", mi.businessLogic());
+            if (includeLogic) {
+                item.put("businessLogic", mi.businessLogic());
+            }
             item.put("exceptions", mi.exceptions());
             if (mi.isHttpEndpoint()) {
                 item.put("httpMethod", mi.httpMethod());
@@ -272,10 +295,9 @@ public class GraphQueryService {
                 results.size(), results);
     }
 
-    private GraphQueryResult classDepsResult(
-            final String identifier, final ProjectGraph.NodeInfo ni,
-            final ProjectGraph graph, final GraphQuery query,
-            final boolean outgoing) {
+    private GraphQueryResult vertexDeps(
+            final String identifier, final ProjectGraph graph,
+            final GraphQuery query, final boolean outgoing) {
 
         final Set<String> related = outgoing
                 ? graph.dependencies(identifier)
@@ -299,10 +321,9 @@ public class GraphQueryService {
                 results.size(), results);
     }
 
-    private GraphQueryResult singleMethodResult(
-            final String identifier, final ProjectGraph.NodeInfo ni,
-            final ProjectGraph graph, final GraphQuery query,
-            final String methodName) {
+    private GraphQueryResult vertexSingleMethod(
+            final String identifier, final ProjectGraph graph,
+            final GraphQuery query, final String methodName) {
 
         final List<ProjectGraph.MethodInfo> methods =
                 graph.methods(identifier);
@@ -336,6 +357,65 @@ public class GraphQueryService {
                 "METHOD_NOT_FOUND");
     }
 
+    // -- Check mode ----------------------------------------------------------
+
+    private GraphQueryResult executeMethodCheck(
+            final String identifier, final GraphQuery query,
+            final ProjectGraph graph) {
+
+        final String checkValue = query.checkValue();
+        final String normalizedCheck = checkValue.toLowerCase();
+
+        final boolean exists = graph.methods(identifier).stream()
+                .anyMatch(m -> m.methodName().toLowerCase()
+                        .equals(normalizedCheck));
+
+        final Map<String, Object> item = new LinkedHashMap<>();
+        item.put("className", identifier);
+        item.put("check", checkValue);
+        item.put("exists", exists);
+
+        if (exists) {
+            graph.methods(identifier).stream()
+                    .filter(m -> m.methodName().toLowerCase()
+                            .equals(normalizedCheck))
+                    .findFirst()
+                    .ifPresent(mi -> {
+                        item.put("methodName", mi.methodName());
+                        item.put("description", mi.description());
+                        if (mi.isHttpEndpoint()) {
+                            item.put("httpEndpoint", mi.httpEndpoint());
+                        }
+                    });
+        }
+
+        return new GraphQueryResult("check", query.project(),
+                1, List.of(item));
+    }
+
+    // -- Helpers -------------------------------------------------------------
+
+    private List<Map<String, Object>> methodSummaries(
+            final String identifier, final ProjectGraph graph,
+            final boolean includeLogic) {
+
+        final List<Map<String, Object>> summaries = new ArrayList<>();
+        for (final ProjectGraph.MethodInfo mi
+                : graph.methods(identifier)) {
+            final Map<String, Object> mItem = new LinkedHashMap<>();
+            mItem.put("methodName", mi.methodName());
+            mItem.put("description", mi.description());
+            if (mi.isHttpEndpoint()) {
+                mItem.put("httpEndpoint", mi.httpEndpoint());
+            }
+            if (includeLogic) {
+                mItem.put("businessLogic", mi.businessLogic());
+            }
+            summaries.add(mItem);
+        }
+        return summaries;
+    }
+
     /**
      * Resolves a simple or partial class name to a full identifier
      * in the graph. Tries exact match first, then suffix match.
@@ -355,7 +435,6 @@ public class GraphQueryService {
             final String simpleName = extractSimpleName(id);
             if (simpleName.toLowerCase().equals(lowerName)) {
                 if (bestMatch != null) {
-                    // Ambiguous — return first match
                     return bestMatch;
                 }
                 bestMatch = id;

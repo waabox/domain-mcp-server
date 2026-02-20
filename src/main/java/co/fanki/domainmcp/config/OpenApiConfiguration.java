@@ -19,8 +19,8 @@ import java.util.List;
 @Configuration
 public class OpenApiConfiguration {
 
-    @Value("${server.port:8080}")
-    private int serverPort;
+    @Value("${app.url:http://localhost:8080}")
+    private String appUrl;
 
     /**
      * Configures the OpenAPI specification.
@@ -58,8 +58,8 @@ public class OpenApiConfiguration {
                                 .url("https://fanki.co")))
                 .servers(List.of(
                         new Server()
-                                .url("http://localhost:" + serverPort)
-                                .description("Local development server")));
+                                .url(appUrl)
+                                .description("API server")));
     }
 
 }

@@ -234,7 +234,7 @@ List all indexed projects. Use this to check which repositories have been analyz
 | `repositoryUrl` | string | Git repository URL |
 | `basePackage` | string | Common base package (e.g., `co.fanki.order`) |
 | `description` | string | Project description from README |
-| `status` | string | `PENDING`, `ANALYZING`, `ANALYZED`, or `ERROR` |
+| `status` | string | `PENDING`, `ANALYZING`, `ANALYZED`, `SYNCING`, or `ERROR` |
 | `lastAnalyzedAt` | string | ISO-8601 timestamp of last analysis |
 | `classCount` | number | Number of indexed classes |
 | `endpointCount` | number | Number of HTTP endpoints found |
@@ -1487,7 +1487,7 @@ claude mcp add --transport stdio domain-mcp-server \
   -e DATABASE_USERNAME=postgres \
   -e DATABASE_PASSWORD=postgres \
   -- java --enable-preview -Dspring.profiles.active=mcp \
-  -jar /absolute/path/to/domain-mcp-server-1.4.jar
+  -jar /absolute/path/to/domain-mcp-server-1.7.jar
 ```
 
 Use `--scope project` to add it only to the current project, or omit it for user-wide config.
@@ -1560,7 +1560,7 @@ Minimal `"ok"` / `"up"` HTTP endpoint for probes.
 
 ## Roadmap
 
-Additional language parsers (Python, Kotlin), incremental indexing, improved cross-service linking, better LLM patterns.
+Additional language parsers (Python, Kotlin), improved cross-service linking, better LLM patterns.
 
 ## Contributing
 

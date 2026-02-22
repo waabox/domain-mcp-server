@@ -190,6 +190,25 @@ public class ProjectRepository {
     }
 
     /**
+     * Finds projects matching any of the given statuses.
+     *
+     * @param statuses the list of statuses to include
+     * @return list of projects whose status is in the given list
+     */
+    public List<Project> findByStatuses(final List<ProjectStatus> statuses) {
+        final List<String> statusNames = statuses.stream()
+                .map(ProjectStatus::name)
+                .toList();
+        return jdbi.withHandle(handle -> handle
+                .createQuery(
+                        "SELECT * FROM projects WHERE status = ANY(:statuses)")
+                .bindArray("statuses", String.class,
+                        statusNames.toArray(new String[0]))
+                .map(new ProjectRowMapper())
+                .list());
+    }
+
+    /**
      * Finds all projects with non-null graph data.
      *
      * @return list of projects that have graph data

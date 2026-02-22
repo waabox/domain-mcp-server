@@ -107,6 +107,37 @@ class ProjectTest {
     }
 
     @Test
+    void whenStartingSync_givenAnalyzedStatus_shouldTransitionToSyncing() {
+        final Project project = createAnalyzedProject();
+
+        project.startSync();
+
+        assertEquals(ProjectStatus.SYNCING, project.status());
+    }
+
+    @Test
+    void whenCompletingSync_givenSyncingStatus_shouldTransitionToAnalyzed() {
+        final Project project = createAnalyzedProject();
+        project.startSync();
+
+        project.syncCompleted("def456");
+
+        assertEquals(ProjectStatus.ANALYZED, project.status());
+        assertEquals("def456", project.lastCommitHash());
+        assertNotNull(project.lastAnalyzedAt());
+    }
+
+    @Test
+    void whenMarkingError_givenSyncingStatus_shouldTransitionToError() {
+        final Project project = createAnalyzedProject();
+        project.startSync();
+
+        project.markError();
+
+        assertEquals(ProjectStatus.ERROR, project.status());
+    }
+
+    @Test
     void whenRenaming_givenValidName_shouldUpdateName() {
         final Project project = createTestProject();
 

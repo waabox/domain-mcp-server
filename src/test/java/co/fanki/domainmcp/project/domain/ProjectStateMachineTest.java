@@ -99,9 +99,22 @@ class ProjectStateMachineTest {
     }
 
     @Test
-    void whenTransitioning_givenNullFrom_shouldThrowNullPointerException() {
-        assertThrows(NullPointerException.class, () ->
+    void whenTransitioning_givenNullFrom_shouldThrowIllegalArgumentException() {
+        assertThrows(IllegalArgumentException.class, () ->
                 ProjectStateMachine.transition(null, ProjectStatus.ANALYZING));
+    }
+
+    @Test
+    void whenTransitioning_givenNullTo_shouldThrowIllegalArgumentException() {
+        assertThrows(IllegalArgumentException.class, () ->
+                ProjectStateMachine.transition(ProjectStatus.PENDING, null));
+    }
+
+    @Test
+    void whenTransitioning_givenSyncingToAnalyzing_shouldThrowDomainException() {
+        assertThrows(DomainException.class, () ->
+                ProjectStateMachine.transition(
+                        ProjectStatus.SYNCING, ProjectStatus.ANALYZING));
     }
 
 }

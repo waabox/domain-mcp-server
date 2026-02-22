@@ -108,7 +108,7 @@ public final class Project {
         final Project project = new Project(id, name, repositoryUrl,
                 defaultBranch, createdAt);
         project.description = description;
-        project.status = status;
+        project.status = Preconditions.requireNonNull(status, "Project status is required");
         project.lastAnalyzedAt = lastAnalyzedAt;
         project.lastCommitHash = lastCommitHash;
         project.graphData = graphData;

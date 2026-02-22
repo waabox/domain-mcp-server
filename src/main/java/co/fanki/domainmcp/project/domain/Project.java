@@ -1,6 +1,5 @@
 package co.fanki.domainmcp.project.domain;
 
-import co.fanki.domainmcp.shared.DomainException;
 import co.fanki.domainmcp.shared.Preconditions;
 
 import java.time.Instant;
@@ -109,7 +108,7 @@ public final class Project {
         final Project project = new Project(id, name, repositoryUrl,
                 defaultBranch, createdAt);
         project.description = description;
-        project.status = status;
+        project.status = Preconditions.requireNonNull(status, "Project status is required");
         project.lastAnalyzedAt = lastAnalyzedAt;
         project.lastCommitHash = lastCommitHash;
         project.graphData = graphData;
@@ -120,15 +119,10 @@ public final class Project {
     /**
      * Marks the project as currently being analyzed.
      *
-     * @throws DomainException if the project cannot be analyzed
+     * @throws co.fanki.domainmcp.shared.DomainException if the transition is not permitted
      */
     public void startAnalysis() {
-        if (!status.canAnalyze()) {
-            throw new DomainException(
-                    "Cannot analyze project in status: " + status,
-                    "PROJECT_CANNOT_ANALYZE");
-        }
-        this.status = ProjectStatus.ANALYZING;
+        this.status = ProjectStateMachine.transition(this.status, ProjectStatus.ANALYZING);
         this.updatedAt = Instant.now();
     }
 
@@ -136,27 +130,24 @@ public final class Project {
      * Marks the analysis as complete.
      *
      * @param commitHash the commit hash that was analyzed
+     * @throws co.fanki.domainmcp.shared.DomainException if the transition is not permitted
      */
     public void analysisCompleted(final String commitHash) {
         Preconditions.requireNonBlank(commitHash, "Commit hash is required");
-        this.status = ProjectStatus.ANALYZED;
-        this.lastAnalyzedAt = Instant.now();
+        this.status = ProjectStateMachine.transition(this.status, ProjectStatus.ANALYZED);
+        final Instant now = Instant.now();
+        this.lastAnalyzedAt = now;
         this.lastCommitHash = commitHash;
-        this.updatedAt = Instant.now();
+        this.updatedAt = now;
     }
 
     /**
      * Marks the project as currently being synced (incremental update).
      *
-     * @throws DomainException if the project cannot be synced
+     * @throws co.fanki.domainmcp.shared.DomainException if the transition is not permitted
      */
     public void startSync() {
-        if (!status.canSync()) {
-            throw new DomainException(
-                    "Cannot sync project in status: " + status,
-                    "PROJECT_CANNOT_SYNC");
-        }
-        this.status = ProjectStatus.SYNCING;
+        this.status = ProjectStateMachine.transition(this.status, ProjectStatus.SYNCING);
         this.updatedAt = Instant.now();
     }
 
@@ -164,13 +155,15 @@ public final class Project {
      * Marks the incremental sync as complete.
      *
      * @param commitHash the new HEAD commit hash
+     * @throws co.fanki.domainmcp.shared.DomainException if the transition is not permitted
      */
     public void syncCompleted(final String commitHash) {
         Preconditions.requireNonBlank(commitHash, "Commit hash is required");
-        this.status = ProjectStatus.ANALYZED;
-        this.lastAnalyzedAt = Instant.now();
+        this.status = ProjectStateMachine.transition(this.status, ProjectStatus.ANALYZED);
+        final Instant now = Instant.now();
+        this.lastAnalyzedAt = now;
         this.lastCommitHash = commitHash;
-        this.updatedAt = Instant.now();
+        this.updatedAt = now;
     }
 
     /**
@@ -195,9 +188,12 @@ public final class Project {
 
     /**
      * Marks the project as having an error.
+     *
+     * @throws co.fanki.domainmcp.shared.DomainException if the current status cannot
+     *     transition to ERROR (only ANALYZING and SYNCING are valid source states)
      */
     public void markError() {
-        this.status = ProjectStatus.ERROR;
+        this.status = ProjectStateMachine.transition(this.status, ProjectStatus.ERROR);
         this.updatedAt = Instant.now();
     }
 

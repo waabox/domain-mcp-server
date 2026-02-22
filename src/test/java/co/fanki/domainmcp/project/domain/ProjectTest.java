@@ -80,6 +80,7 @@ class ProjectTest {
     @Test
     void whenStartingAnalysis_givenErrorStatus_shouldTransitionToAnalyzing() {
         final Project project = createTestProject();
+        project.startAnalysis();
         project.markError();
 
         project.startAnalysis();
@@ -88,8 +89,48 @@ class ProjectTest {
     }
 
     @Test
-    void whenMarkingError_givenAnyStatus_shouldTransitionToError() {
+    void whenMarkingError_givenAnalyzingStatus_shouldTransitionToError() {
         final Project project = createTestProject();
+        project.startAnalysis();
+
+        project.markError();
+
+        assertEquals(ProjectStatus.ERROR, project.status());
+    }
+
+    @Test
+    void whenStartingSync_givenAnalyzingStatus_shouldThrowDomainException() {
+        final Project project = createTestProject();
+        project.startAnalysis();
+
+        assertThrows(DomainException.class, project::startSync);
+    }
+
+    @Test
+    void whenStartingSync_givenAnalyzedStatus_shouldTransitionToSyncing() {
+        final Project project = createAnalyzedProject();
+
+        project.startSync();
+
+        assertEquals(ProjectStatus.SYNCING, project.status());
+    }
+
+    @Test
+    void whenCompletingSync_givenSyncingStatus_shouldTransitionToAnalyzed() {
+        final Project project = createAnalyzedProject();
+        project.startSync();
+
+        project.syncCompleted("def456");
+
+        assertEquals(ProjectStatus.ANALYZED, project.status());
+        assertEquals("def456", project.lastCommitHash());
+        assertNotNull(project.lastAnalyzedAt());
+    }
+
+    @Test
+    void whenMarkingError_givenSyncingStatus_shouldTransitionToError() {
+        final Project project = createAnalyzedProject();
+        project.startSync();
 
         project.markError();
 

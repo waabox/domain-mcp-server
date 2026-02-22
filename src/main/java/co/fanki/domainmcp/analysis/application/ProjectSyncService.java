@@ -919,8 +919,8 @@ public class ProjectSyncService {
     public SyncAllResult syncAllProjects() {
         LOG.info("Starting manual sync for all projects");
 
-        final List<Project> projects = projectRepository.findByStatus(
-                ProjectStatus.ANALYZED);
+        final List<Project> projects = projectRepository.findByStatuses(
+                List.of(ProjectStatus.ANALYZED, ProjectStatus.ERROR));
 
         if (projects.isEmpty()) {
             LOG.info("No projects eligible for sync");

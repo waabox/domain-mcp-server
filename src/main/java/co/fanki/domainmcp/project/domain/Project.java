@@ -135,9 +135,10 @@ public final class Project {
     public void analysisCompleted(final String commitHash) {
         Preconditions.requireNonBlank(commitHash, "Commit hash is required");
         this.status = ProjectStateMachine.transition(this.status, ProjectStatus.ANALYZED);
-        this.lastAnalyzedAt = Instant.now();
+        final Instant now = Instant.now();
+        this.lastAnalyzedAt = now;
         this.lastCommitHash = commitHash;
-        this.updatedAt = Instant.now();
+        this.updatedAt = now;
     }
 
     /**
@@ -159,9 +160,10 @@ public final class Project {
     public void syncCompleted(final String commitHash) {
         Preconditions.requireNonBlank(commitHash, "Commit hash is required");
         this.status = ProjectStateMachine.transition(this.status, ProjectStatus.ANALYZED);
-        this.lastAnalyzedAt = Instant.now();
+        final Instant now = Instant.now();
+        this.lastAnalyzedAt = now;
         this.lastCommitHash = commitHash;
-        this.updatedAt = Instant.now();
+        this.updatedAt = now;
     }
 
     /**
@@ -187,7 +189,8 @@ public final class Project {
     /**
      * Marks the project as having an error.
      *
-     * @throws co.fanki.domainmcp.shared.DomainException if the transition is not permitted
+     * @throws co.fanki.domainmcp.shared.DomainException if the current status cannot
+     *     transition to ERROR (only ANALYZING and SYNCING are valid source states)
      */
     public void markError() {
         this.status = ProjectStateMachine.transition(this.status, ProjectStatus.ERROR);

@@ -80,6 +80,7 @@ class ProjectTest {
     @Test
     void whenStartingAnalysis_givenErrorStatus_shouldTransitionToAnalyzing() {
         final Project project = createTestProject();
+        project.startAnalysis();
         project.markError();
 
         project.startAnalysis();
@@ -88,12 +89,21 @@ class ProjectTest {
     }
 
     @Test
-    void whenMarkingError_givenAnyStatus_shouldTransitionToError() {
+    void whenMarkingError_givenAnalyzingStatus_shouldTransitionToError() {
         final Project project = createTestProject();
+        project.startAnalysis();
 
         project.markError();
 
         assertEquals(ProjectStatus.ERROR, project.status());
+    }
+
+    @Test
+    void whenStartingSync_givenAnalyzingStatus_shouldThrowDomainException() {
+        final Project project = createTestProject();
+        project.startAnalysis();
+
+        assertThrows(DomainException.class, project::startSync);
     }
 
     @Test

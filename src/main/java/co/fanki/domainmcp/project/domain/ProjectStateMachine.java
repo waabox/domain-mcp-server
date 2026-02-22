@@ -51,10 +51,14 @@ public final class ProjectStateMachine {
      * @param from the current project status
      * @param to   the desired target status
      * @return {@code to} when the transition is valid
-     * @throws DomainException with code {@code PROJECT_INVALID_TRANSITION} when the
-     *                         transition is not permitted
+     * @throws DomainException      with code {@code PROJECT_INVALID_TRANSITION} when the
+     *                              transition is not permitted
+     * @throws NullPointerException if {@code from} or {@code to} is null
      */
     public static ProjectStatus transition(final ProjectStatus from, final ProjectStatus to) {
+        if (from == null || to == null) {
+            throw new NullPointerException("from and to must not be null");
+        }
         final Set<ProjectStatus> allowed = TRANSITIONS.getOrDefault(from, EnumSet.noneOf(ProjectStatus.class));
         if (!allowed.contains(to)) {
             throw new DomainException(

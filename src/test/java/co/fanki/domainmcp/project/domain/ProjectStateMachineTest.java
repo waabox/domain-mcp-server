@@ -18,84 +18,90 @@ class ProjectStateMachineTest {
 
     @Test
     void whenTransitioning_givenPendingToAnalyzing_shouldReturnAnalyzing() {
-        ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.PENDING, ProjectStatus.ANALYZING);
+        final ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.PENDING, ProjectStatus.ANALYZING);
         assertEquals(ProjectStatus.ANALYZING, result);
     }
 
     @Test
     void whenTransitioning_givenAnalyzingToAnalyzed_shouldReturnAnalyzed() {
-        ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.ANALYZING, ProjectStatus.ANALYZED);
+        final ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.ANALYZING, ProjectStatus.ANALYZED);
         assertEquals(ProjectStatus.ANALYZED, result);
     }
 
     @Test
     void whenTransitioning_givenAnalyzingToError_shouldReturnError() {
-        ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.ANALYZING, ProjectStatus.ERROR);
+        final ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.ANALYZING, ProjectStatus.ERROR);
         assertEquals(ProjectStatus.ERROR, result);
     }
 
     @Test
     void whenTransitioning_givenAnalyzedToAnalyzing_shouldReturnAnalyzing() {
-        ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.ANALYZED, ProjectStatus.ANALYZING);
+        final ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.ANALYZED, ProjectStatus.ANALYZING);
         assertEquals(ProjectStatus.ANALYZING, result);
     }
 
     @Test
     void whenTransitioning_givenAnalyzedToSyncing_shouldReturnSyncing() {
-        ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.ANALYZED, ProjectStatus.SYNCING);
+        final ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.ANALYZED, ProjectStatus.SYNCING);
         assertEquals(ProjectStatus.SYNCING, result);
     }
 
     @Test
     void whenTransitioning_givenSyncingToAnalyzed_shouldReturnAnalyzed() {
-        ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.SYNCING, ProjectStatus.ANALYZED);
+        final ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.SYNCING, ProjectStatus.ANALYZED);
         assertEquals(ProjectStatus.ANALYZED, result);
     }
 
     @Test
     void whenTransitioning_givenSyncingToError_shouldReturnError() {
-        ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.SYNCING, ProjectStatus.ERROR);
+        final ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.SYNCING, ProjectStatus.ERROR);
         assertEquals(ProjectStatus.ERROR, result);
     }
 
     @Test
     void whenTransitioning_givenErrorToAnalyzing_shouldReturnAnalyzing() {
-        ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.ERROR, ProjectStatus.ANALYZING);
+        final ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.ERROR, ProjectStatus.ANALYZING);
         assertEquals(ProjectStatus.ANALYZING, result);
     }
 
     @Test
     void whenTransitioning_givenErrorToSyncing_shouldReturnSyncing() {
-        ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.ERROR, ProjectStatus.SYNCING);
+        final ProjectStatus result = ProjectStateMachine.transition(ProjectStatus.ERROR, ProjectStatus.SYNCING);
         assertEquals(ProjectStatus.SYNCING, result);
     }
 
     @Test
     void whenTransitioning_givenPendingToAnalyzed_shouldThrowDomainException() {
-        DomainException exception = assertThrows(DomainException.class, () ->
+        final DomainException exception = assertThrows(DomainException.class, () ->
                 ProjectStateMachine.transition(ProjectStatus.PENDING, ProjectStatus.ANALYZED));
         assertEquals("PROJECT_INVALID_TRANSITION", exception.getErrorCode());
     }
 
     @Test
     void whenTransitioning_givenAnalyzedToError_shouldThrowDomainException() {
-        DomainException exception = assertThrows(DomainException.class, () ->
+        final DomainException exception = assertThrows(DomainException.class, () ->
                 ProjectStateMachine.transition(ProjectStatus.ANALYZED, ProjectStatus.ERROR));
         assertEquals("PROJECT_INVALID_TRANSITION", exception.getErrorCode());
     }
 
     @Test
     void whenTransitioning_givenErrorToAnalyzed_shouldThrowDomainException() {
-        DomainException exception = assertThrows(DomainException.class, () ->
+        final DomainException exception = assertThrows(DomainException.class, () ->
                 ProjectStateMachine.transition(ProjectStatus.ERROR, ProjectStatus.ANALYZED));
         assertEquals("PROJECT_INVALID_TRANSITION", exception.getErrorCode());
     }
 
     @Test
     void whenTransitioning_givenPendingToSyncing_shouldThrowDomainException() {
-        DomainException exception = assertThrows(DomainException.class, () ->
+        final DomainException exception = assertThrows(DomainException.class, () ->
                 ProjectStateMachine.transition(ProjectStatus.PENDING, ProjectStatus.SYNCING));
         assertEquals("PROJECT_INVALID_TRANSITION", exception.getErrorCode());
+    }
+
+    @Test
+    void whenTransitioning_givenNullFrom_shouldThrowNullPointerException() {
+        assertThrows(NullPointerException.class, () ->
+                ProjectStateMachine.transition(null, ProjectStatus.ANALYZING));
     }
 
 }

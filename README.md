@@ -36,9 +36,9 @@
   <img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT License" />
 </p>
 
-Domain-aware MCP server that clones and analyzes your microservices (code + docs) to extract business logic, APIs, and data models.
-Each project is modeled as an in-memory graph for fast contextual reasoning, while all extracted knowledge is persisted in PostgreSQL for durable, structured querying.
-Designed to run standalone or in concert with other MCP servers such as Datadog MCP.
+Domain-aware server that turns your entire microservice ecosystem into a unified in-memory graph.
+It ingests code and documentation, extracts business logic, APIs, and data models, and links everything as first-class entities for fast contextual reasoning.
+All knowledge is persisted in PostgreSQL for long-term querying, and the server exposes an MCP interface to plug directly into LLM workflows or other MCP-based tools.
 
 ## Table of Contents
 

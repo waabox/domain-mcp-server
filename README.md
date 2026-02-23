@@ -1,3 +1,9 @@
+<p align="center">
+  <img src="assets/graph-rabbit-compress.png" alt="Domain MCP Server Space Rabbit" width="35%" />
+</p>
+
+<h1 align="center">domain-mcp-server</h1>
+
 <p align="left">
   <!-- Build -->
   <a href="https://github.com/waabox/domain-mcp-server/actions">
@@ -29,8 +35,6 @@
   <!-- License -->
   <img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT License" />
 </p>
-
-# domain-mcp-server
 
 Domain-aware MCP server that clones and analyzes your microservices (code + docs) to extract business logic, APIs, and data models.
 Each project is modeled as an in-memory graph for fast contextual reasoning, while all extracted knowledge is persisted in PostgreSQL for durable, structured querying.
